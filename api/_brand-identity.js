@@ -90,20 +90,37 @@ async function refuse(session, why) {
 
 // 0121: with several brands behind one sign-in, a page left open in one tab can be showing brand A while the person has
 // switched the session to brand B in another tab. Pages send the brand they are SHOWING in the X-DH-Brand header
-// (brand/brands.js guard). When it is present and differs from the session's brand, the request is refused so nothing
-// is booked, paid or saved under the wrong brand. Absent header = today's behaviour. The header never grants anything:
-// it can only make the server refuse.
+// (brand/brands.js guard). The header never grants anything: the session and the role stay the authority, and the
+// header can only make the server refuse.
+//
+// Codex multi-brand review, finding 2: a valid session for brand B does not show that the person MEANT to act for B
+// from the page in front of them. So while the multi-brand switch is on, a request that changes something for a brand
+// must SAY which brand its page shows:
+//   * a well-formed header that names another brand     -> brand_changed            (always, switch on or off)
+//   * no header, or a malformed one, on a mutation      -> brand_context_required   (switch on only)
+//   * no header on a read, or anything with the switch off -> today's behaviour (deliberate: with the switch off a
+//     sign-in reaches one brand only, so there is no other brand a stale page could write to; turning the switch OFF
+//     therefore loosens nothing for people with one brand, and people who were given a second brand while it was on
+//     can no longer switch to it)
+// A page opened before this release has no header at all; once the switch is on it must be reloaded before it can save.
+const BRAND_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const BRAND_CHANGED_BODY = Object.freeze({ error: 'brand_changed', message: 'You switched to another brand in a different tab. Reload this page to continue.' });
-export function brandHeaderMismatch(req, ctx) {
+export const BRAND_CONTEXT_REQUIRED_BODY = Object.freeze({ error: 'brand_context_required', message: 'Reload this page to continue. It was opened before your sign-in could work for more than one brand, so it cannot say which brand this is for.' });
+// null when the request may proceed, else the body to answer 409 with. Call only with a resolved identity.
+export function brandContextProblem(req, ctx, { mutation = false } = {}) {
+  if (!ctx || !ctx.ok) return null;                      // authorization is decided elsewhere, first
   const raw = req && req.headers ? String(req.headers['x-dh-brand'] || '').trim().toLowerCase() : '';
-  if (!raw || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(raw)) return false;
-  return !!(ctx && ctx.ok && String(ctx.brandId).toLowerCase() !== raw);
+  if (BRAND_UUID.test(raw)) return String(ctx.brandId).toLowerCase() === raw ? null : BRAND_CHANGED_BODY;
+  if (mutation && FLAGS.multiBrandAccess) return BRAND_CONTEXT_REQUIRED_BODY;   // absent or malformed
+  return null;
 }
+export function brandHeaderMismatch(req, ctx) { return brandContextProblem(req, ctx) === BRAND_CHANGED_BODY; }
 
 // Request-level helper: cookie only, never a body or query field.
-export async function requireBrandIdentity(req) {
+export async function requireBrandIdentity(req, opts = {}) {
   const ctx = await resolveBrandIdentity(getSessionToken(req, 'brand'));
-  if (brandHeaderMismatch(req, ctx)) return { ok: false, status: 409, error: BRAND_CHANGED_BODY.error, message: BRAND_CHANGED_BODY.message };
+  const problem = brandContextProblem(req, ctx, opts);
+  if (problem) return { ok: false, status: 409, error: problem.error, message: problem.message };
   return ctx;
 }
 

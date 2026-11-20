@@ -203,7 +203,7 @@ async function _brandVerifyCode() {
     if (_cat) {
       try {
         await fetch('/api/brand-account?action=profile-update', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-DH-Brand': String(j.brand_id || '') },   // 0121: the brand the code was just verified for
           credentials: 'same-origin', body: JSON.stringify({ default_categories: _cat }),
         });
       } catch (_) { /* non-blocking, they can set it later in Profile */ }

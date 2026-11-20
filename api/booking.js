@@ -254,6 +254,7 @@ export default async function handler(req, res) {
       // Brand-specific status requires the AUTHENTICATED brand session, never a submitted email,
       // so this endpoint can't be used to enumerate which emails have accounts/agreements.
       const _bAuth = await requireBrandSession(req, body);
+      if (!_bAuth.ok && _bAuth.status === 409) return res.status(409).json({ error: _bAuth.error, message: _bAuth.message });   // 0121: the page shows another brand
       if (!_bAuth.ok) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'sign_in_required', policies });
       // 0097: the page needs to know whether the person can sign at all.
       policies.can_sign = _bAuth.role !== 'booker';
@@ -277,7 +278,8 @@ export default async function handler(req, res) {
       const { retailer_slug: rs, signed_name: sn } = body;
       if (!rs) return res.status(400).json({ error: 'retailer_slug required' });
       if (!sn || String(sn).trim().length < 2) return res.status(400).json({ error: 'signed_name required' });
-      const _sAuth = await requireBrandSession(req, body);
+      const _sAuth = await requireBrandSession(req, body, { mutation: true });   // 0121: signing binds a brand to a store's policies
+      if (!_sAuth.ok && _sAuth.status === 409) return res.status(409).json({ error: _sAuth.error, message: _sAuth.message });
       if (!_sAuth.ok) return res.status(401).json({ error: 'sign_in_required' });
       // 0097 (Codex BK-5): a booker cannot bind the brand to a store's policies.
       if (_sAuth.role === 'booker') return res.status(403).json({ error: 'role_not_allowed', message: 'Only the brand account owner can agree to a store\'s policies. Ask them to agree once, then you can book here.' });

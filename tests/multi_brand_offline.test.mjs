@@ -40,10 +40,10 @@ const read = (p) => readFileSync(p, 'utf8');
   ok('2f. a refused or missing identity stays refused by both gates', (requireOwner({ ok: false, status: 401 }) || {}).status === 401 && (requireRole(null, 'owner') || {}).status === 401);
   ok('2g. Full access manages every booking of the brand; Booking only manages its own', bookingBelongsTo(ctx('manager'), { booked_by_member_id: 'someone-else' }) === true && bookingBelongsTo(ctx('booker'), { booked_by_member_id: 'someone-else' }) === false && bookingBelongsTo(ctx('booker'), { booked_by_member_id: 'm1' }) === true);
   const h = (v) => ({ headers: v === undefined ? {} : { 'x-dh-brand': v } });
-  ok('3a. no header: nothing changes', brandHeaderMismatch(h(undefined), ctx('owner')) === false);
+  ok('3a. the mismatch helper only speaks for a well-formed brand that differs (missing or malformed brands are the business of tests/multi_brand_stale_page.test.mjs, part 2)', brandHeaderMismatch(h(undefined), ctx('owner')) === false);
   ok('3b. the page shows the session\'s brand (any letter case): allowed', brandHeaderMismatch(h('11111111-1111-4111-8111-111111111111'), ctx('owner')) === false && brandHeaderMismatch(h('11111111-1111-4111-8111-111111111111'.toUpperCase()), ctx('owner')) === false);
   ok('3c. the page shows another brand: refused', brandHeaderMismatch(h('22222222-2222-4222-8222-222222222222'), ctx('owner')) === true);
-  ok('3d. a malformed header is ignored, and the header never turns a refused identity into an allowed one', brandHeaderMismatch(h('not-a-uuid'), ctx('owner')) === false && brandHeaderMismatch(h('22222222-2222-4222-8222-222222222222'), { ok: false }) === false);
+  ok('3d. the header never turns a refused identity into an allowed one', brandHeaderMismatch(h('22222222-2222-4222-8222-222222222222'), { ok: false }) === false);
 }
 
 // ---- 4. the route wiring
@@ -60,11 +60,11 @@ const api = read('api/brand-account.js');
   ok('4g. the switch rotates the session: new cookie set, old token dropped from the cache', /rpc\/brand_session_switch/.test(api) && /_ctxCache\.delete\(oldToken\);\s*\n\s*setBrandSessionCookie\(res, newToken\);/.test(api));
   ok('4h. the request reply is one generic body for every outcome that would reveal an account', /if \(out\.outcome !== 'ok'\) return jsonResp\(res, 200, GENERIC\);/.test(api) && /return jsonResp\(res, 200, GENERIC\);\s*\n\s*\}/.test(api));
   ok('4i. the request token is hashed before it is stored or looked up, and never returned', /p_token_hash: requestHash\(token\)/.test(api) && !/jsonResp\(res, \d+, \{[^}]*\btoken\b[^}]*\}\)/.test(api.slice(api.indexOf("if (action === 'access-request')"), api.indexOf("if (action === 'logout')"))));
-  ok('4j. the stale-tab check runs for every signed-in action except listing, switching and signing out', /!\['brand-list', 'brand-switch', 'logout', 'logout-everywhere'\]\.includes\(action\) && brandHeaderMismatch\(req, ctx\)/.test(api));
+  ok('4j. the brand-context check runs for every signed-in action except listing, switching and signing out', /const BRAND_CONTEXT_EXEMPT = new Set\(\['brand-list', 'brand-switch', 'logout', 'logout-everywhere'\]\);/.test(api) && /if \(!BRAND_CONTEXT_EXEMPT\.has\(action\)\) \{/.test(api));
   const signup = read('api/brand-signup.js');
   ok('4k. sign-in adds the picker data only while the switch is on, after the session is issued for the default brand', /if \(FLAGS\.multiBrandAccess\) \{/.test(signup) && signup.indexOf('setBrandCookie(res, token);') < signup.indexOf("rpc('brand_access_list'") && /choose: brands\.length > 1 \|\| invites\.length > 0/.test(signup));
   const bi = read('api/_booking-identity.js');
-  ok('4l. booking, checkout and agreement signing run the stale-tab check too', /brandHeaderMismatch\(req, ctx\)\) return \{ ok: false, status: 409/.test(bi));
+  ok('4l. booking, checkout and agreement signing run the brand-context check too', /const problem = brandContextProblem\(req, ctx, \{ mutation: opts\.mutation === true \}\);\s*\n\s*if \(problem\) return \{ ok: false, status: 409/.test(bi));
   const idn = read('api/_brand-identity.js');
   ok('4m. with the switch off a Full access member resolves as Booking only (rollback narrows, never widens)', /const role = FLAGS\.multiBrandAccess \? ROLES\.MANAGER : ROLES\.BOOKER;/.test(idn));
 }
@@ -82,6 +82,9 @@ const api = read('api/brand-account.js');
   ok('5f. a request is decided under the brand lock, once, unexpired, and only for the owner it was sent to', /FROM brands WHERE id = v_r\.brand_id FOR UPDATE;/.test(sql) && /IF v_r\.status <> 'pending' THEN RETURN jsonb_build_object\('outcome', 'already_decided'/.test(sql) && /IF v_r\.expires_at <= now\(\) THEN RETURN jsonb_build_object\('outcome', 'expired'\);/.test(sql) && /lower\(coalesce\(v_b\.email, ''\)\) <> lower\(v_r\.owner_email\)/.test(sql));
   ok('5g. the switch checks the session\'s own email against ownership or ACCEPTED access', /status = 'accepted' AND role IN \('booker','manager'\) FOR SHARE;/.test(sql) && /DELETE FROM brand_account_sessions WHERE id = v_s\.id;/.test(sql));
   ok('5h. sign-in still resolves the OWN brand first and never accepts a pending invitation', sql.indexOf("SELECT id INTO v_brand_id FROM brands WHERE lower(email) = v_email LIMIT 1;") > 0 && /RETURN jsonb_build_object\('outcome','invite_pending'/.test(sql));
+  const sql2 = read('supabase/migrations/0122_multi_brand_access_corrections.sql');
+  ok('5j. 0122: one email lock, taken first by every writer of a brand identity, and by the insert trigger for a direct write', /pg_advisory_xact_lock\(hashtextextended\('demohub\.brand_identity:' \|\| lower\(btrim\(coalesce\(p_email, ''\)\)\), 0\)\)/.test(sql2)
+    && sql2.indexOf('PERFORM _brand_identity_lock(v_email);') < sql2.indexOf('SELECT * INTO v_b FROM brands WHERE id = p_brand_id FOR UPDATE;') && (sql2.match(/PERFORM _brand_identity_lock\(/g) || []).length === 4 && /direct_member_write_refused/.test(sql2) && !/^\s*(begin|commit);\s*$/im.test(sql2));
   ok('5i. no transaction control and no bare SELECT in the file (applied in one transaction with its ledger row)', !/^\s*(begin|commit);\s*$/im.test(sql));
 }
 
@@ -91,8 +94,8 @@ const api = read('api/brand-account.js');
   ok('6a. the three pages load the one shared picker script', [dash, signin, booking].every(s => /<script src="\/brand\/brands\.js"><\/script>/.test(s)));
   ok('6b. the picker lists what the server says and marks the own brand', /action: 'brand-list'/.test(js) && /b\.is_own \? '<span class="dhb-chip own">Yours<\/span>'/.test(js) && /Your own brand account/.test(js));
   ok('6c. switching is one server call, then a reload', /api\(\{ action: 'brand-switch', brand_id: brandId \}\)/.test(js) && /else location\.reload\(\);/.test(js));
-  ok('6d. the page stamps its API calls with the brand it shows and stops when the server says the brand changed', /h\.set\('X-DH-Brand', state\.activeId\)/.test(js) && /j\.error === 'brand_changed'\) blockPage/.test(js) && /You switched brand in another tab/.test(js));
-  ok('6e. the script keeps no session or token in browser storage (only the id of the active brand, to tell other tabs)', (js.match(/localStorage\.setItem\(/g) || []).length === 1 && /localStorage\.setItem\(KEY, brandId \+ '\|' \+ Date\.now\(\)\)/.test(js) && !/sessionStorage|document\.cookie/.test(js));
+  ok('6d. the page stamps its API calls with the brand it shows and stops when the server says the brand changed', /h\.set\('X-DH-Brand', state\.pageBrand\)/.test(js) && /j\.error === 'brand_changed' \|\| j\.error === 'brand_context_required'\)\) blockPage\(\)/.test(js) && /You switched brand in another tab/.test(js));
+  ok('6e. the script keeps no session or token in browser storage (only the id of the brand a tab shows, to tell other tabs)', (js.match(/localStorage\.setItem\(/g) || []).length === 2 && (js.match(/localStorage\.setItem\(KEY, /g) || []).length === 2 && !/sessionStorage|document\.cookie/.test(js));
   ok('6f. sign-in shows the picker when the server asks, and goes straight in otherwise', /if \(j\.choose && window\.DHBrands\) \{/.test(signin) && /Which brand are you working on\?/.test(signin) && /window\.location\.href = '\/brand\/dashboard';/.test(signin));
   ok('6g. the portal header names the active brand and mounts the switcher; a phone gets the band under the header', /mountSwitcher\(document\.getElementById\('brandSwitcherSlot'\), _data, \{ label: 'Working on' \}\)/.test(dash) && /id="brandForBand"/.test(dash) && /@media \(max-width:760px\) \{ #brandSwitcherSlot \{ display:none; \} #brandForBand\.on \{ display:block; \} \}/.test(dash));
   ok('6h. the owner sees People with access with two levels; Full access never sees that card', /People with access/.test(dash) && /const accessCard = full \? '' :/.test(dash) && /<strong>Booking only<\/strong>/.test(dash) && /<strong>Full access<\/strong>/.test(dash));

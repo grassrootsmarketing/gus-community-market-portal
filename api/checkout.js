@@ -42,8 +42,8 @@ export default async function handler(req, res) {
   if (!requireSameOrigin(req, res, _b)) return;
   let body = {}; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) {}
 
-  const auth = await requireBrandSession(req, body);
-  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+  const auth = await requireBrandSession(req, body, { mutation: true });   // 0121: before any claim or provider call
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error, ...(auth.message ? { message: auth.message } : {}) });
 
   let ids = Array.isArray(body.booking_ids) ? body.booking_ids.filter(Boolean) : (body.booking_id ? [body.booking_id] : []);
   ids = [...new Set(ids.map(String))];

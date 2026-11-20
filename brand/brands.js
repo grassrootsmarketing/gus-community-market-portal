@@ -7,17 +7,25 @@
 //   DHBrands.open(opts)               the same picker in a dialog (header switcher, "Switch brand" on the booking page)
 //   DHBrands.mountSwitcher(el, data)  the header button that names the active brand and opens the dialog
 //   DHBrands.switchTo(id)             one click: the server checks access, rotates the session, the page reloads
-//   DHBrands.guard(brandId)           stamps every API call from this page with the brand the page is SHOWING. If the
-//                                     person switched brand in another tab the server answers 409 brand_changed and this
-//                                     page stops and asks for a reload, so nothing is ever saved to the wrong brand.
+//   DHBrands.guard(brandId)           fixes, ONCE, the brand this page is SHOWING and stamps every API call from the page
+//                                     with it. Nothing that happens later on the page changes that stamp: not opening the
+//                                     picker, not a brand list that names another brand, not a switch. When the session
+//                                     turns out to be on another brand (the server says so, the brand list says so,
+//                                     another tab says so, or this page itself just switched) the page is BLOCKED: its
+//                                     brand requests are refused here without being sent, answers still in flight are
+//                                     discarded, and the only way on is a reload. (Codex multi-brand review, finding 1.)
 //
 // The server is the authority for everything here: which brands are listed, whether a switch is allowed, and whether an
 // invitation or request is valid. This file only draws what the server says.
-/* global window, document, fetch, location, localStorage, Headers, Request */
+/* global window, document, fetch, location, localStorage, Headers, Request, Response */
 (function () {
   'use strict';
   var KEY = 'dh_active_brand';
-  var state = { activeId: null, guarded: false, blocked: false };
+  // pageBrand: the brand this page's data was loaded for. Set once by guard(), never reassigned.
+  // blocked: the session is (or may be) on another brand; nothing brand-bound leaves this page any more.
+  // switching: this page asked for a switch and is waiting for the answer or for the reload that follows it.
+  var state = { pageBrand: null, pageName: '', guarded: false, blocked: false, switching: false };
+  var EXEMPT = ['brand-list', 'brand-switch', 'logout', 'logout-everywhere'];   // how a stale page recovers; the server exempts the same four
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
   var LABEL = { owner: 'Your account', full: 'Full access', booking: 'Booking only' };
 
@@ -89,9 +97,13 @@
   // every list, item and certificate on screen belongs to the new brand.
   function switchTo(brandId, opts) {
     opts = opts || {};
+    if (state.blocked) return Promise.resolve({ ok: false, status: 409, body: { error: 'brand_changed', message: 'Reload this page first.' } });
+    // From the moment the switch is asked for, this page stops sending brand requests: a save fired while the switch is
+    // in flight must not land on either brand. A refused switch lifts the pause; a successful one never does, because the
+    // page still shows the old brand until it reloads.
+    state.switching = true;
     return api({ action: 'brand-switch', brand_id: brandId }).then(function (r) {
-      if (!r.ok) return r;
-      state.activeId = brandId;
+      if (!r.ok) { state.switching = false; return r; }
       try { localStorage.setItem(KEY, brandId + '|' + Date.now()); } catch (_) { /* private mode: the server check still holds */ }
       if (typeof opts.onSwitched === 'function') opts.onSwitched(r.body);
       else location.reload();
@@ -105,8 +117,10 @@
     return api({ action: 'brand-list' }).then(function (r) {
       if (!r.ok || !r.body || r.body.multi_brand !== true) { el.innerHTML = ''; if (typeof opts.onUnavailable === 'function') opts.onUnavailable(r); return r; }
       var d = r.body, brands = d.brands || [], invites = d.invites || [];
-      var active = opts.activeId || d.active_brand_id || state.activeId;
-      state.activeId = d.active_brand_id || state.activeId;
+      // The list says which brand the SESSION is on. If that is not the brand this page shows, the page is stale: stop
+      // it. The list never changes what this page stamps on its requests.
+      if (state.pageBrand && d.active_brand_id && String(d.active_brand_id) !== String(state.pageBrand) && !state.switching) { el.innerHTML = ''; blockPage(); return r; }
+      var active = opts.activeId || d.active_brand_id || state.pageBrand;
       var h = '';
       h += '<ul class="dhb-list" data-dhb="brands">' + brands.map(function (b) {
         var cur = String(b.brand_id) === String(active);
@@ -212,7 +226,6 @@
     css(); opts = opts || {};
     if (!el || !data || data.multi_brand !== true) { if (el) el.innerHTML = ''; return false; }
     var a = data.active_brand || {}, n = (data.brands || []).length, inv = (data.invites || []).length;
-    state.activeId = a.brand_id || state.activeId;
     if (n < 2 && !inv) { el.innerHTML = ''; return false; }
     var cur = (data.brands || []).filter(function (b) { return String(b.brand_id) === String(a.brand_id); })[0] || { company_name: a.company_name };
     el.innerHTML = '<button type="button" class="dhb-switch" id="dhBrandSwitch" aria-haspopup="dialog" title="Switch brand">' + avatar(cur)
@@ -228,7 +241,6 @@
     if (!el) return false;
     if (!data || data.multi_brand !== true || !data.active_brand) { el.innerHTML = ''; el.style.display = 'none'; return false; }
     var a = data.active_brand, many = (data.brands || []).length > 1, inv = (data.invites || []).length;
-    state.activeId = a.brand_id || state.activeId;
     if (opts.onlyIfMany && !many && !inv) { el.innerHTML = ''; el.style.display = 'none'; return false; }
     el.innerHTML = '<div class="dhb-for"><span>' + esc(opts.prefix || 'Booking for') + ' <strong data-dhb="for-name">' + esc(a.company_name) + '</strong>'
       + (a.access === 'owner' ? '' : ' <span style="color:#3a3a36;">(' + esc(LABEL[a.access] || '') + ')</span>') + '</span>'
@@ -239,39 +251,84 @@
     return true;
   }
 
-  // Stale-tab protection. Every API call from a guarded page says which brand the page is showing. The server compares
-  // it with the session and refuses a mismatch, and this page then stops with a reload prompt.
-  function blockPage(name) {
+  // Stale-page protection (Codex multi-brand review, finding 1).
+  function blockPage() {
     if (state.blocked) return; state.blocked = true; css(); close();
+    var name = state.pageName;
     var o = document.createElement('div'); o.className = 'dhb-overlay'; o.id = 'dhBrandsBlocked';
     o.innerHTML = '<div class="dhb-dialog" role="alertdialog" aria-modal="true" aria-labelledby="dhBlockedTitle"><h2 id="dhBlockedTitle">You switched brand in another tab</h2>'
       + '<p class="dhb-note" style="font-size:.95rem;margin:6px 0 16px;">This page is still showing ' + (name ? '<strong>' + esc(name) + '</strong>' : 'the earlier brand') + '. Reload it so that what you see and what you book belong to the brand you are working on now. Nothing was saved to the wrong brand.</p>'
       + '<button type="button" class="dhb-btn" id="dhBlockedReload">Reload this page</button></div>';
     document.body.appendChild(o);
-    document.getElementById('dhBlockedReload').addEventListener('click', function () { location.reload(); });
+    var rb = o.querySelector('#dhBlockedReload');
+    if (rb) rb.addEventListener('click', function () { location.reload(); });
+  }
+  // Which brand-account action a request is for (query string first, then a JSON body), so the four recovery actions
+  // can pass while everything else is held.
+  function actionOf(url, init) {
+    var m = /[?&]action=([^&#]+)/.exec(url || '');
+    if (m) return decodeURIComponent(m[1]);
+    var body = init && init.body;
+    if (typeof body === 'string' && body.length < 100000) { try { var j = JSON.parse(body); if (j && typeof j.action === 'string') return j.action; } catch (_) { /* not JSON */ } }
+    return '';
+  }
+  function refusedHere() {
+    // The same answer the server gives a stale page, produced without sending anything.
+    var payload = JSON.stringify({ error: 'brand_changed', message: 'You switched to another brand. Reload this page to continue.', refused_in_page: true });
+    if (typeof Response !== 'undefined') return new Response(payload, { status: 409, headers: { 'Content-Type': 'application/json' } });
+    return { ok: false, status: 409, headers: { get: function () { return 'application/json'; } }, json: function () { return Promise.resolve(JSON.parse(payload)); }, text: function () { return Promise.resolve(payload); }, clone: function () { return this; } };
+  }
+  function sessionMovedElsewhere() {
+    var v = null; try { v = localStorage.getItem(KEY); } catch (_) { return false; }
+    return !!(v && state.pageBrand && String(v).split('|')[0] !== String(state.pageBrand));
   }
   function guard(brandId, brandName) {
     if (!brandId) return;
-    state.activeId = brandId; state.guardName = brandName || state.guardName || '';
+    if (state.pageBrand) {
+      // Already fixed for this page. The same brand again is a no-op; a DIFFERENT brand means the page's data is being
+      // replaced under it (for example a second sign-in on the booking page), and the only safe answer is a clean load.
+      if (String(state.pageBrand) !== String(brandId)) { state.blocked = true; location.reload(); }
+      return;
+    }
+    state.pageBrand = String(brandId); state.pageName = brandName || '';
+    // This page was just loaded from the live session, so it is the truth for this browser: tell the other tabs.
+    try { localStorage.setItem(KEY, state.pageBrand + '|' + Date.now()); } catch (_) { /* the server check still holds */ }
     if (state.guarded) return; state.guarded = true;
     var orig = window.fetch.bind(window);
     window.fetch = function (input, init) {
       var url = typeof input === 'string' ? input : (input && input.url) || '';
       var sameApi = url.indexOf('/api/') === 0 || url.indexOf(location.origin + '/api/') === 0;
-      if (!sameApi || !state.activeId) return orig(input, init);
+      if (!sameApi) return orig(input, init);
+      var exempt = EXEMPT.indexOf(actionOf(url, init)) >= 0;
+      // A missed or late notice from another tab is caught here, before the request is built.
+      if (!exempt && !state.blocked && !state.switching && sessionMovedElsewhere()) blockPage();
+      if (!exempt && (state.blocked || state.switching)) return Promise.resolve(refusedHere());
       init = Object.assign({}, init || {});
       var h = new Headers(init.headers || ((typeof Request !== 'undefined' && input instanceof Request) ? input.headers : undefined));
-      h.set('X-DH-Brand', state.activeId); init.headers = h;
+      h.set('X-DH-Brand', state.pageBrand); init.headers = h;   // always the brand this page shows, never anything newer
       return orig(input, init).then(function (res) {
-        if (res.status === 409) { res.clone().json().then(function (j) { if (j && j.error === 'brand_changed') blockPage(state.guardName); }).catch(function () {}); }
+        if (exempt) return res;
+        // An answer that arrives after this page was blocked or switched belongs to the earlier brand: drop it, so it is
+        // never drawn into a page that is about to show (or already names) another brand.
+        if (state.blocked || state.switching) return refusedHere();
+        if (res.status === 409) {
+          return res.clone().json().then(function (j) {
+            if (j && (j.error === 'brand_changed' || j.error === 'brand_context_required')) blockPage();
+            return res;
+          }, function () { return res; });
+        }
         return res;
       });
     };
     window.addEventListener('storage', function (e) {
       if (e.key !== KEY || !e.newValue) return;
-      if (String(e.newValue).split('|')[0] !== String(state.activeId)) blockPage(state.guardName);
+      if (String(e.newValue).split('|')[0] !== String(state.pageBrand) && !state.switching) blockPage();
     });
+    var recheck = function () { if (!state.blocked && !state.switching && sessionMovedElsewhere()) blockPage(); };
+    window.addEventListener('focus', recheck);
+    if (document.addEventListener) document.addEventListener('visibilitychange', recheck);
   }
 
-  window.DHBrands = { renderPicker: renderPicker, open: open, close: close, mountSwitcher: mountSwitcher, forLine: forLine, switchTo: switchTo, guard: guard, labels: LABEL };
+  window.DHBrands = { renderPicker: renderPicker, open: open, close: close, mountSwitcher: mountSwitcher, forLine: forLine, switchTo: switchTo, guard: guard, labels: LABEL,
+    pageBrand: function () { return state.pageBrand; }, isBlocked: function () { return state.blocked || state.switching; } };
 })();

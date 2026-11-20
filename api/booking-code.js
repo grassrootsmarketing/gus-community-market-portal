@@ -13,7 +13,7 @@ export default async function handler(req, res) {
   if (!requireSameOrigin(req, res, b)) return;
   let body = {}; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) {}
   const auth = await requireBrandSession(req, body);
-  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error, ...(auth.message ? { message: auth.message } : {}) });
   const H = { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, 'Content-Type': 'application/json' };
   const rr = await fetch(`${b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(String(body.retailer_slug || ''))}&select=id`, { headers: H });
   const retailer = rr.ok ? (await rr.json())[0] : null;

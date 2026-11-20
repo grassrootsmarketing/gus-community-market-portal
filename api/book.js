@@ -37,8 +37,8 @@ export default async function handler(req, res) {
   let body={}; try{ body = typeof req.body==='string'?JSON.parse(req.body||'{}'):(req.body||{}); }catch(_){}
 
   // 1) identity comes from the authenticated brand session
-  const auth = await requireBrandSession(req, body);
-  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+  const auth = await requireBrandSession(req, body, { mutation: true });   // 0121: a booking must say which brand its page shows
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error, ...(auth.message ? { message: auth.message } : {}) });
 
   // 1b) Codex review 2 item 1: committed-operation recovery comes BEFORE every mutable eligibility check
   // (venue active, slot config, notice rule, clock, COI, contact). A booking made under an earlier rule stays

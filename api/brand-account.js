@@ -10,7 +10,7 @@ import { FLAGS } from './_flags.js';
 import { monthlyOverviewWindow } from './_monthly-overview.js';   // the month the store's monthly summary email reports on
 import { monthlySummaryDue, monthAfter, summarizeMonth, monthlySummaryEmail } from './_monthly-summary.js';   // when it is due, its figures and its look
 import { hashCode } from './_verify.js';
-import { resolveBrandIdentity, requireRole, requireOwner, bookingBelongsTo, brandHeaderMismatch, BRAND_CHANGED_BODY, ROLES } from './_brand-identity.js';   // 0097: the brand identity boundary
+import { resolveBrandIdentity, requireRole, requireOwner, bookingBelongsTo, brandContextProblem, ROLES } from './_brand-identity.js';   // 0097: the brand identity boundary
 import { actionEmail } from './_code-email.js';   // 0121: the branded card for access emails
 
 import { getBinding, sendBindingFailure } from './_env.js';
@@ -460,6 +460,10 @@ const BOOKER_MUTATING_ACTIONS = new Set(['booker-designate', 'booker-resend', 'b
 // 0121: "Full access" (role manager) passes every gate that lists the owner, EXCEPT these. Who has access to the brand
 // and the owner's own password stay with the owner, so full access can never remove or replace the owner.
 const STRICT_OWNER_ACTIONS = new Set(['booker-designate', 'booker-resend', 'booker-revoke', 'booker-status', 'access-set-level', 'access-request-answer', 'set-password']);
+// 0121 (Codex finding 2). Everything signed-in that is in neither set is a mutation for the brand-context rule,
+// including any action added later: forgetting to classify one fails closed.
+const BRAND_CONTEXT_EXEMPT = new Set(['brand-list', 'brand-switch', 'logout', 'logout-everywhere']);
+const BRAND_READ_ACTIONS = new Set(['data', 'agreement-list', 'booker-status', 'claim-status']);
 const FULL_ACCESS_PERMISSIONS_TEXT = 'Full access can do everything the brand account owner can: book demos, pay, see payments and receipts, edit the profile and items, upload the insurance certificate and agree to a store\'s policies. Full access cannot change who has access to the brand or the owner\'s own sign-in.';
 async function verifyIdentityOrStatus(sessionToken) {
   const token = String(sessionToken || '');
@@ -551,9 +555,14 @@ export default async function handler(req, res) {
     const ctx = await verifyIdentityOrStatus(getBrandSessionFromReq(req, body) || '');
     if (!ctx.ok) return jsonResp(res, ctx.status, { error: ctx.status === 503 ? 'auth_unavailable' : 'Not authenticated' });
     const allowed = Object.prototype.hasOwnProperty.call(ACTION_ROLES, action) ? ACTION_ROLES[action] : [ROLES.OWNER];
-    // 0121: a page still showing another brand is refused before anything is read or written. The actions that list
-    // or change the active brand, and signing out, are exempt: they are how a stale page recovers.
-    if (!['brand-list', 'brand-switch', 'logout', 'logout-everywhere'].includes(action) && brandHeaderMismatch(req, ctx)) return jsonResp(res, 409, BRAND_CHANGED_BODY);
+    // 0121 (Codex finding 2): the brand the PAGE shows is checked before anything is read or written. A page showing
+    // another brand is refused; and while the multi-brand switch is on, every action that changes something must name
+    // its brand (missing or malformed = refused). The four that list or change the active brand, or sign out, are exempt:
+    // they are how a stale page recovers. The four reads below may arrive without a brand (the first load of a page).
+    if (!BRAND_CONTEXT_EXEMPT.has(action)) {
+      const problem = brandContextProblem(req, ctx, { mutation: !BRAND_READ_ACTIONS.has(action) });
+      if (problem) return jsonResp(res, 409, problem);
+    }
     const deny = (STRICT_OWNER_ACTIONS.has(action) ? requireOwner(ctx) : null) || requireRole(ctx, ...allowed);
     if (deny) return jsonResp(res, deny.status, deny.body);
   }

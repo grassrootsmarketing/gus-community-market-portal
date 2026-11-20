@@ -105,11 +105,14 @@ const tofu = await mkBrand('tofu', 'Golden Tofu Co', 'Liah Owner', [item('gt-1',
 const rice = await mkBrand('rice', 'Riverbend Rice', 'Rita Owner', [item('rr-1', 'Brown Rice Cakes')]);
 const oats = await mkBrand('oats', 'Harbor Oat Bars', 'Omar Owner', [item('ho-1', 'Oat Bar')]);
 const brands = [rep, tofu, rice, oats];
-const now = new Date().toISOString();
-// accepted Full access at Golden Tofu, accepted Booking only at Harbor Oat Bars, an invitation waiting from Riverbend Rice
-await db('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: tofu.id, email: rep.email, name: 'Helen Rep', role: 'manager', status: 'accepted', accepted_at: now, invited_by_email: tofu.email }) });
-await db('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: oats.id, email: rep.email, name: 'Helen Rep', role: 'booker', status: 'accepted', accepted_at: now, invited_by_email: oats.email }) });
-const riceInvite = one(await db('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: rice.id, email: rep.email, name: 'Helen Rep', role: 'booker', status: 'pending', invited_by_email: rice.email }) }));
+// accepted Full access at Golden Tofu, accepted Booking only at Harbor Oat Bars, an invitation waiting from Riverbend Rice.
+// Created through the access functions, as the product does (0122: a directly inserted row is held to the old rules).
+const rpc = async (fn, args) => { const r = await db('rpc/' + fn, { method: 'POST', body: JSON.stringify(args) }); return Array.isArray(r.body) ? r.body[0] : r.body; };
+const grantTo = async (brand, role, accept) => { const g = await rpc('brand_access_grant', { p_brand_id: brand.id, p_email: rep.email, p_name: 'Helen Rep', p_role: role, p_by_email: brand.email, p_multi: true });
+  if (accept && g && g.member) await rpc('brand_access_accept_signed_in', { p_member_id: g.member.id, p_email: rep.email, p_terms_version: '2026-06-29', p_terms_digest: null }); return g && g.member; };
+await grantTo(tofu, 'manager', true);
+await grantTo(oats, 'booker', true);
+const riceInvite = await grantTo(rice, 'booker', false);
 ok('fixtures: the rep owns one brand, has access to two more and one invitation waiting', !!rep.id && !!tofu.id && !!oats.id && !!(riceInvite && riceInvite.id));
 
 const codeFor = (email) => { const c = [...spy.calls.resend].reverse().find(m => /verification code/i.test(String(m.subject || '')) && (String(m.html || '').toLowerCase().includes(email) || [].concat(m.to || []).map(String).includes(email) || true)); const m = c && /(\d{6})/.exec(String(c.html || '')); return m ? m[1] : null; };
@@ -199,7 +202,16 @@ try {
     await page.waitForSelector('#dhBrandsOverlay .dhb-row');
     ok(`${tag} 3c. the switch link asks "Which brand is this booking for?"`, /Which brand is this booking for\?/.test(await page.innerText('#dhBrandsOverlay')));
     await shot(page, `3-booking-switch-${tag}`);
-    await Promise.all([page.waitForEvent('load'), page.click('#dhBrandsOverlay .dhb-row:has-text("Summit Elixir Co")')]);
+    // Codex finding 1: the click that switches, followed at once by a save from the same (still old) page
+    const racing = page.evaluate(async () => {
+      document.querySelector('#dhBrandsOverlay .dhb-row:nth-child(1), #dhBrandsOverlay li:first-child .dhb-row').click();   // the own brand, first in the list
+      const r = await fetch('/api/brand-account', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'profile-update', company_name: 'Saved During A Switch' }) });
+      return r.status + ':' + ((await r.json()).error || '');
+    }).catch(() => 'navigated');
+    await page.waitForEvent('load');
+    const raced = await racing;
+    const names = (await db(`brands?id=in.(${rep.id},${tofu.id})&select=company_name`)).body.map(b => b.company_name).sort().join('|');
+    ok(`${tag} 3c2. a save fired in the same instant as the switch is held in the page and reaches neither brand`, (raced === '409:brand_changed' || raced === 'navigated') && names === 'Golden Tofu Co|Summit Elixir Co', raced + ' ' + names);
     await page.waitForFunction(() => { const el = document.getElementById('bookingForLineLanding'); return el && /Booking for Summit Elixir Co/.test(el.innerText); }, null, { timeout: 20000 });
     const own = await page.innerText('#bookingForLineLanding');
     const items = await page.evaluate(() => (window._brandProfile && window._brandProfile.products || []).map(p => p.name));
@@ -218,7 +230,21 @@ try {
       ok('desktop 4a. after switching in another tab, the first tab stops and asks for a reload (it still showed the earlier brand)', /You switched brand in another tab/.test(blocked) && /Summit Elixir Co/.test(blocked) && /Reload this page/.test(blocked), blocked);
       await shot(page, '4-other-tab-reload-desktop');
       const refused = await page.evaluate(async () => { const r = await fetch('/api/brand-account?action=data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin' }); return r.status + ':' + ((await r.json()).error || ''); });
-      ok('desktop 4b. and the server refuses that stale tab\'s requests on its own', refused === '409:brand_changed', refused);
+      ok('desktop 4b. that stale tab\'s own requests are answered "brand changed" (held in the page, never sent)', refused === '409:brand_changed', refused);
+      // Codex findings 1 and 2, in the real browser against the real server and database.
+      const snap = async () => JSON.stringify((await db(`brands?id=in.(${rep.id},${tofu.id})&select=id,company_name,products,default_coi_url&order=id`)).body);
+      const snapBefore = await snap();
+      const stale = await page.evaluate(async () => {
+        const post = (b) => fetch('/api/brand-account', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(b) }).then(async r => r.status + ':' + ((await r.json()).error || ''));
+        return { save: await post({ action: 'profile-update', company_name: 'Written From A Stale Tab' }), list: await post({ action: 'brand-list' }), shows: window.DHBrands.pageBrand(), blocked: window.DHBrands.isBlocked() };
+      });
+      ok('desktop 4b2. a save from the stale tab changes nothing on either brand; the tab still knows which brand it shows and can still list brands to recover', stale.save === '409:brand_changed' && stale.list === '200:' && stale.shows === rep.id && stale.blocked === true && (await snap()) === snapBefore, JSON.stringify(stale));
+      // a page from before the release: the browser's cookies, no brand stamp at all (sent outside the page script)
+      const old = await ctx.request.post(`${BASE}/api/brand-account`, { headers: { 'Content-Type': 'application/json', Origin: BASE, 'Sec-Fetch-Site': 'same-origin' }, data: { action: 'profile-update', company_name: 'Written By A Pre Release Page' } });
+      const oldBook = await ctx.request.post(`${BASE}/api/book`, { headers: { 'Content-Type': 'application/json', Origin: BASE, 'Sec-Fetch-Site': 'same-origin' }, data: { retailer_slug: slug, venue_id: venueId, demo_date: dayP(30), demo_time: '11:00 AM', product_skus: [item('gt-1', 'Miso Tofu')] } });
+      const oldBody = await old.json().catch(() => ({})), oldBookBody = await oldBook.json().catch(() => ({}));
+      ok('desktop 4b3. a request with the session cookie but NO brand (a page opened before the release) is refused by the server and changes nothing', old.status() === 409 && oldBody.error === 'brand_context_required' && oldBook.status() === 409 && oldBookBody.error === 'brand_context_required' && (await snap()) === snapBefore
+        && (await db(`bookings?retailer_id=eq.${retailerId}&select=id`)).body.length === 0, old.status() + ':' + oldBody.error + ' ' + oldBook.status() + ':' + oldBookBody.error);
       await other.close();
       await Promise.all([page.waitForEvent('load'), page.click('#dhBlockedReload')]);
       await page.waitForFunction(() => { const el = document.getElementById('bookingForLineLanding'); return el && /Booking for Golden Tofu Co/.test(el.innerText); }, null, { timeout: 20000 });

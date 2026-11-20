@@ -33,7 +33,12 @@ const mailsFor = (addr, subjectRe) => spy.calls.resend.filter(c => {
   return hit && (!subjectRe || subjectRe.test(String(c.subject || '')));
 });
 const lastMail = (subjectRe) => [...spy.calls.resend].reverse().find(c => subjectRe.test(String(c.subject || '')));
-const acct = (body, cookie, extra = {}) => callRoute('brand-account.js', req({ body, cookies: cookie ? { dh_brand_session: cookie } : {}, ...extra }));
+// Since Codex finding 2 a request that changes something must name the brand its page shows while the switch is on.
+// A real page does that through brand/brands.js; here "page(cookie)" is the brand the session is on right now, which
+// is what a freshly loaded page shows. A test that passes its own headers (or NOBRAND) is checking the rule itself.
+const NOBRAND = { headers: {} };
+const page = async (cookie) => { if (!cookie) return {}; const s = one(await db(`brand_account_sessions?session_token=eq.${encodeURIComponent(cookie)}&select=brand_id`)); return s ? { 'x-dh-brand': s.brand_id } : {}; };
+const acct = async (body, cookie, extra = {}) => callRoute('brand-account.js', req({ body, cookies: cookie ? { dh_brand_session: cookie } : {}, headers: extra.headers ? extra.headers : await page(cookie), ...(({ headers, ...rest }) => rest)(extra) }));
 const on = () => { ENV.MULTI_BRAND_ACCESS_ENABLED = 'true'; delete ENV.BRAND_INVITE_ENABLED; };   // on: the one switch is enough
 const off = () => { delete ENV.MULTI_BRAND_ACCESS_ENABLED; ENV.BRAND_INVITE_ENABLED = 'true'; };
 
@@ -63,9 +68,9 @@ ok('fixtures: four owner sessions exist', brands.every(b => !!b.cookie));
 
 const T = '11:00 AM';
 const opKey = () => 'k' + Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
-const book = (body, cookie, headers = {}) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V1, demo_time: T, op_key: opKey(), ...body }, cookies: { dh_brand_session: cookie }, headers }));
+const book = async (body, cookie, headers = null) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V1, demo_time: T, op_key: opKey(), ...body }, cookies: { dh_brand_session: cookie }, headers: headers || await page(cookie) }));
 const shownHash = async (cookie) => ((await callRoute('booking.js', req({ body: { action: 'agreement-check', retailer_slug: slug }, cookies: { dh_brand_session: cookie } }))).body.policies || {}).policy_hash;
-const sign = async (cookie, name) => callRoute('booking.js', req({ body: { action: 'agreement-sign', retailer_slug: slug, signed_name: name, policy_hash: await shownHash(cookie) }, cookies: { dh_brand_session: cookie } }));
+const sign = async (cookie, name, headers = null) => callRoute('booking.js', req({ body: { action: 'agreement-sign', retailer_slug: slug, signed_name: name, policy_hash: await shownHash(cookie) }, cookies: { dh_brand_session: cookie }, headers: headers || await page(cookie) }));
 const signIn = async (email) => {   // the real sign-in route with a real code row
   const code = String(Math.floor(100000 + Math.random() * 899999));
   await db('email_verifications', { method: 'POST', body: JSON.stringify({ email, purpose: 'brand_signup', code_hash: hashCode(email, 'brand_signup', code), payload: {}, expires_at: new Date(Date.now() + 30 * 60e3).toISOString() }) });
@@ -192,6 +197,36 @@ try {
     const after = (await db(`bookings?retailer_id=eq.${retailerId}&select=id`)).body.length;
     ok('D4 a page still showing the earlier brand is refused: nothing is booked and nothing is saved under the wrong brand', stale.statusCode === 409 && stale.body.error === 'brand_changed' && staleSave.statusCode === 409 && staleSave.body.error === 'brand_changed' && before === after
       && one(await db(`brands?id=eq.${liah.id}&select=products`)).products.length === 2, stale.statusCode + ' ' + staleSave.statusCode);
+    // Codex finding 2: the page opened BEFORE the switch (no brand at all), a malformed brand, the other brand, the right
+    // brand. Only the last may change anything. Counted effects: bookings, agreements, the product list, files, mail,
+    // and calls to the payment provider.
+    const effects = async () => ({ bookings: (await db(`bookings?retailer_id=eq.${retailerId}&select=id`)).body.length, agreements: (await db(`brand_retailer_agreements?retailer_id=eq.${retailerId}&select=id`)).body.length,
+      tofu: JSON.stringify(one(await db(`brands?id=eq.${liah.id}&select=products,company_name,default_coi_url,logo_url`))), own: JSON.stringify(one(await db(`brands?id=eq.${helen.id}&select=products,company_name,default_coi_url,logo_url`))),
+      mail: spy.calls.resend.length, stripe: spy.calls.stripe.length });
+    const e0 = await effects();
+    const refusals = {};
+    for (const [name, headers] of [['none', {}], ['malformed', { 'x-dh-brand': 'not-a-brand' }], ['other', { 'x-dh-brand': helen.id }]]) {
+      const want = name === 'other' ? 'brand_changed' : 'brand_context_required';
+      const rs = [
+        await book({ demo_date: day3, product_skus: [item('tf-1', 'Miso Tofu')] }, tofuCookie, headers),
+        await sign(tofuCookie, 'Helen Rep', headers),
+        await callRoute('checkout.js', req({ body: { booking_ids: [bT.body.booking_id] }, cookies: { dh_brand_session: tofuCookie }, headers })),
+        await acct({ action: 'profile-update', company_name: 'Hijacked Name', products: [], expected_products_version: 0 }, tofuCookie, { headers }),
+        await acct({ action: 'upload-coi', file_base64: 'AAAA', filename: 'x.pdf' }, tofuCookie, { headers }),
+        await acct({ action: 'remove-coi' }, tofuCookie, { headers }),
+        await acct({ action: 'access-request', owner_email: rita.email, terms_accepted: true }, tofuCookie, { headers }),
+        await acct({ action: 'cal_token' }, tofuCookie, { headers }),
+      ];
+      refusals[name] = rs.every(r => r.statusCode === 409 && r.body && r.body.error === want) ? 'all ' + want : rs.map(r => r.statusCode + ':' + (r.body && r.body.error)).join(' ');
+    }
+    const e1 = await effects();
+    ok('D4b a page with NO brand (opened before the release), a malformed brand or another brand cannot book, sign, pay, save, upload, remove a file or send a request: every one is refused', refusals.none === 'all brand_context_required' && refusals.malformed === 'all brand_context_required' && refusals.other === 'all brand_changed', JSON.stringify(refusals));
+    ok('D4c and those refusals had no effect at all: same bookings, agreements, profiles and files on BOTH brands, no mail, no provider call', JSON.stringify(e0) === JSON.stringify(e1), JSON.stringify(e0) + ' vs ' + JSON.stringify(e1));
+    const unauth = await callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V1, demo_time: T, demo_date: day3, op_key: opKey(), product_skus: [item('tf-1', 'Miso Tofu')] }, cookies: { dh_brand_session: 'not-a-session' }, headers: { 'x-dh-brand': liah.id } }));
+    const wrongRole = await acct({ action: 'booker-designate', email: secondEmail }, tofuCookie);
+    ok('D4d naming the right brand grants nothing by itself: no session is still 401, and Full access is still refused the owner-only action', unauth.statusCode === 401 && wrongRole.statusCode === 403 && wrongRole.body.error === 'owner_only', unauth.statusCode + ' ' + wrongRole.statusCode);
+    const reads = [await acct({ action: 'data' }, tofuCookie, NOBRAND), await acct({ action: 'agreement-list' }, tofuCookie, NOBRAND), await callRoute('booking.js', req({ body: { action: 'agreement-check', retailer_slug: slug }, cookies: { dh_brand_session: tofuCookie } }))];
+    ok('D4e the first load of a page (reads with no brand yet) still works', reads.every(r => r.statusCode === 200), reads.map(r => r.statusCode).join(','));
     const okHeader = await acct({ action: 'data' }, tofuCookie, { headers: { 'x-dh-brand': liah.id } });
     const recover = await acct({ action: 'brand-list' }, tofuCookie, { headers: { 'x-dh-brand': helen.id } });
     ok('D5 the matching brand passes, and a stale page can still list and switch brands to recover', okHeader.statusCode === 200 && recover.statusCode === 200);
@@ -215,10 +250,17 @@ try {
     const n1 = spy.calls.resend.length;
     const real = await acct({ action: 'access-request', owner_email: rita.email, access: 'full', note: 'I run your demos', terms_accepted: true }, helenCookie);
     const mail = lastMail(/asks for access to Rice Fixture/);
-    const token = tokenFrom(mail, '/brand/approve');
+    let token = tokenFrom(mail, '/brand/approve');
     ok('E1 the reply is the same whether or not the owner email has an account; only the real one sends a mail', unknown.statusCode === 200 && real.statusCode === 200 && JSON.stringify(unknown.body) === JSON.stringify(real.body) && n1 === n0 && !!mail && !!token && /Nobody gets access unless you approve/.test(mail.html), JSON.stringify(real.body));
     const stored = one(await db(`brand_access_requests?brand_id=eq.${rita.id}&status=eq.pending&select=token_hash,owner_email,requested_role,expires_at`));
     ok('E2 the token is stored hashed, bound to the owner email, and expires', stored && stored.token_hash !== token && !String(stored.token_hash).includes(token) && stored.owner_email === rita.email && stored.requested_role === 'manager' && new Date(stored.expires_at) - Date.now() < 14.1 * 864e5);
+    // a newer request from the same person replaces the older link
+    const again = await acct({ action: 'access-request', owner_email: rita.email, access: 'booking', terms_accepted: true }, helenCookie);
+    const tokenNew = tokenFrom(lastMail(/asks for access to Rice Fixture/), '/brand/approve');
+    const oldLink = await acct({ action: 'access-request-decide', token, decision: 'approve' }, null, NOBRAND);
+    ok('E2b asking again replaces the earlier link: the old one approves nothing, one pending request remains', again.statusCode === 200 && !!tokenNew && tokenNew !== token && oldLink.statusCode === 409 && oldLink.body.error === 'already_decided'
+      && (await db(`brand_access_requests?brand_id=eq.${rita.id}&status=eq.pending&select=id`)).body.length === 1 && !one(await db(`brand_members?brand_id=eq.${rita.id}&email=eq.${encodeURIComponent(helen.email)}&select=id`)), oldLink.statusCode + ' ' + JSON.stringify(oldLink.body));
+    token = tokenNew;
     const noTerms = await acct({ action: 'access-request', owner_email: rita.email }, helenCookie);
     const self = await acct({ action: 'access-request', owner_email: helen.email, terms_accepted: true }, helenCookie);
     ok('E3 a request needs the Terms and cannot name the person\'s own sign-in', noTerms.statusCode === 400 && self.statusCode === 400 && self.body.error === 'own_brand');
@@ -226,11 +268,11 @@ try {
     ok('E4 a request gives no access until the owner approves', inert.statusCode === 403);
     const view = await acct({ action: 'access-request-view', token });
     const getDecide = await callRoute('brand-account.js', req({ method: 'GET', query: { action: 'access-request-decide', token, decision: 'approve' }, body: {} }));
-    const afterView = one(await db(`brand_access_requests?brand_id=eq.${rita.id}&select=status`));
-    ok('E5 opening the emailed link only shows the request (no sign-in); a GET can never approve (mail scanners)', view.statusCode === 200 && view.body.state === 'pending' && view.body.brand_name === 'Rice Fixture' && view.body.requester_email === helen.email && view.body.requested_level === 'full' && view.body.note === 'I run your demos'
+    const afterView = one(await db(`brand_access_requests?brand_id=eq.${rita.id}&order=created_at.desc&limit=1&select=status`));
+    ok('E5 opening the emailed link only shows the request (no sign-in); a GET can never approve (mail scanners)', view.statusCode === 200 && view.body.state === 'pending' && view.body.brand_name === 'Rice Fixture' && view.body.requester_email === helen.email && view.body.requested_level === 'booking'
       && getDecide.statusCode === 405 && afterView.status === 'pending', JSON.stringify(view.body));
     const bad = await acct({ action: 'access-request-decide', token: token.slice(0, -4) + 'abcd', decision: 'approve' });
-    ok('E6 a wrong token decides nothing', bad.statusCode === 410 && one(await db(`brand_access_requests?brand_id=eq.${rita.id}&select=status`)).status === 'pending');
+    ok('E6 a wrong token decides nothing', bad.statusCode === 410 && one(await db(`brand_access_requests?brand_id=eq.${rita.id}&order=created_at.desc&limit=1&select=status`)).status === 'pending');
     const yes = await acct({ action: 'access-request-decide', token, decision: 'approve', access: 'booking' });
     const member = one(await db(`brand_members?brand_id=eq.${rita.id}&email=eq.${encodeURIComponent(helen.email)}&select=id,role,status,terms_version`));
     ok('E7 the owner approves with the button, with no session, and may choose a narrower level than was asked', yes.statusCode === 200 && yes.body.decision === 'approved' && yes.body.level === 'booking' && member && member.status === 'accepted' && member.role === 'booker' && member.terms_version === DEMOHUB_TOS_VERSION && yes.cookie('dh_brand_session') == null, JSON.stringify(yes.body));

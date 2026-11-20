@@ -4,7 +4,7 @@
 
 import { getBinding } from './_env.js';
 import { getSessionToken } from './_cookies.js';
-import { resolveBrandIdentity, brandHeaderMismatch, BRAND_CHANGED_BODY } from './_brand-identity.js';
+import { resolveBrandIdentity, brandContextProblem } from './_brand-identity.js';
 
 async function rest(path) {
   const b = await getBinding();
@@ -17,14 +17,18 @@ async function rest(path) {
 // itself was accepted from body.session_token / body.session_id as well as the cookie. Booking and
 // agreement signing are the actions this resolver gates, so a session that can arrive in a request
 // body is a session that can be replayed out of any log or proxy that recorded that body.
-export async function requireBrandSession(req, _body) {
+// opts.mutation: true on the routes that book, pay or sign (0121, Codex finding 2): with the multi-brand switch on they
+// must be told which brand the page shows, and a missing, malformed or different brand is refused before any write or
+// provider call. Reads pass without it.
+export async function requireBrandSession(req, _body, opts = {}) {
   // 0097 (Codex BK-4): the session resolves through the identity boundary, which checks the LIVE membership on
   // every request and adds { memberId, role }. The { ok, brandId, email } shape every caller reads is unchanged.
   const token = getSessionToken(req, 'brand');
   if (!token) return { ok: false, status: 401, error: 'sign in to book' };
   const ctx = await resolveBrandIdentity(token);
   // 0121: a page still showing another brand (the person switched in a different tab) is refused, never booked.
-  if (brandHeaderMismatch(req, ctx)) return { ok: false, status: 409, error: BRAND_CHANGED_BODY.error };
+  const problem = brandContextProblem(req, ctx, { mutation: opts.mutation === true });
+  if (problem) return { ok: false, status: 409, error: problem.error, message: problem.message };
   return ctx;
 }
 
