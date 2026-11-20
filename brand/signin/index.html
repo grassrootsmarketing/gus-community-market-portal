@@ -154,8 +154,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <div class="check">&#9993;</div>
     <h2>Check your email</h2>
     <p>We sent a 6-digit code to <strong id="sentEmail"></strong>.</p>
-    <p style="font-size:0.85rem; color:var(--ink-500);">Delivery can take a few minutes. Check spam. You can request another code after the countdown. Request limits apply.</p>
-    <p style="margin-top:10px;font-size:0.9rem;">Enter it below to finish signing in. Codes expire at the time stated in the email.</p>
+    <p style="margin-top:8px;">Enter it below to finish signing in. Codes expire at the time stated in the email.</p>
     <div style="margin-top:16px;">
       <input id="brandCodeInput" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6"
              placeholder="000000"
@@ -164,8 +163,10 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
       <button type="button" id="brandCodeBtn"
               style="width:100%; margin-top:10px; padding:13px; background:#0f2c17; color:#fff; border:none; border-radius:10px; font-size:1rem; font-weight:700; font-family:inherit; cursor:pointer;">Sign in</button>
     </div>
-    <p style="margin-top:14px;font-size:0.84rem;color:#6b6a64;">On a phone, use the code. Tapping the email link can open a different browser and lose your place.</p>
-    <p style="margin-top:10px;"><a href="#" id="brandResendLink" style="color:var(--forest-700); text-decoration:underline; cursor:pointer; font-size:0.88rem;">Didn't get it? Resend code</a></p>
+    <!-- the two help notes sit together under the button, evenly spaced and in the body text colour (they were split above and below the code box, the first one tight against the address line and in a faint grey) -->
+    <p style="margin-top:20px;font-size:0.88rem;line-height:1.5;color:#3a3a36;">Delivery can take a few minutes. Check spam. You can request another code after the countdown. Request limits apply.</p>
+    <p style="margin-top:8px;font-size:0.88rem;line-height:1.5;color:#3a3a36;">On a phone, use the code. Tapping the email link can open a different browser and lose your place.</p>
+    <p style="margin-top:14px;"><a href="#" id="brandResendLink" style="color:var(--forest-700); text-decoration:underline; cursor:pointer; font-size:0.88rem;">Didn't get it? Resend code</a></p>
   </div>
 </main>
 <script src="/brand/brands.js"></script>
