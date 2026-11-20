@@ -25,5 +25,10 @@ Demohub is free for retailers at any number of locations, with no subscription a
 - [Set up a store](https://www.demohubhq.com/signup): free sign-up for retailers
 - [Security](https://www.demohubhq.com/security)
 
+## Guides
+- [How to run a brand demo program at an independent grocery store](https://www.demohubhq.com/guides/in-store-demo-program)
+- [What insurance a brand needs for an in-store demo](https://www.demohubhq.com/guides/demo-insurance-certificate)
+- [How to book an in-store demo at an independent grocery store](https://www.demohubhq.com/guides/book-in-store-demo)
+
 ## Contact
 David Heiser, founder: david@demohubhq.com
