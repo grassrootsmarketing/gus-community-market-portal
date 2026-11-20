@@ -65,7 +65,7 @@ async function noticeRecipients(sb, booking) {
   // owner's notice is NOT discarded (brand email, or the booking's recorded booker-email owner fallback), and the
   // failure is reported so the operator can resend.
   if (lookupFailed) return { to: [], owner: owner || null, bookedBy: booking.booked_by_name || booking.booked_by_email || null, lookup_failed: true };
-  const live = member && member.role === 'booker' && member.status === 'accepted';
+  const live = member && (member.role === 'booker' || member.role === 'manager') && member.status === 'accepted';   // 0121: either access level
   const bookedBy = (member && (member.name || member.email)) || booking.booked_by_name || booking.booked_by_email || null;
   if (member && member.role === 'owner') return { to: contact ? [contact] : (owner ? [owner] : []), owner: null, bookedBy: null };
   const to = live && contact ? [contact] : [];

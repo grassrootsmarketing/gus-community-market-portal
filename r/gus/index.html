@@ -322,6 +322,7 @@
         button, .btn { cursor: pointer; }
 </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="/brand/brands.js"></script>
 <!-- PostHog -->
 <script>
 !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]);t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey getNextSurveyStep identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing debug getPageViewId captureTraceFeedback captureTraceMetric".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
@@ -361,7 +362,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             </button>
         </div>
         <div class="brand-signin-banner" id="brandSigninBannerLanding" style="align-self:stretch;">
-            <div>Signed in as <strong id="brandSigninNameLanding">, </strong>, your contact info will auto-fill when you book</div>
+            <div><div>Signed in as <strong id="brandSigninNameLanding">, </strong>, your contact info will auto-fill when you book</div><div class="booking-for-line" id="bookingForLineLanding" style="display:none; margin-top:6px;"></div></div>
             <div class="actions">
                 <a href="/brand/dashboard">Your brand portal &rarr;</a>
                 <a onclick="brandPublicSignOut()">Sign out</a>
@@ -394,7 +395,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                      targeted #brandSigninBanner/#brandSigninName; the elements were never placed,
                      so a signed-in brand got no "Signed in as" state on the booking view. -->
                 <div class="brand-signin-banner" id="brandSigninBanner" style="border-radius:10px; margin-top:16px;">
-                    <div>Signed in as <strong id="brandSigninName"></strong>. Your contact info will auto-fill when you book</div>
+                    <div><div>Signed in as <strong id="brandSigninName"></strong>. Your contact info will auto-fill when you book</div><div class="booking-for-line" id="bookingForLine" style="display:none; margin-top:6px;"></div></div>
                     <div class="actions">
                         <a href="/brand/dashboard">Your brand portal &rarr;</a>
                         <a onclick="brandPublicSignOut()">Sign out</a>
@@ -542,7 +543,8 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         <div class="modal" style="max-width: 540px;">
             <div class="modal-body" style="text-align: left; padding: 32px;">
                 <h3 style="font-size: 1.5rem; color: var(--forest-800); margin-bottom: 8px;" id="bookModalTitle">Create your account &amp; book</h3>
-                <p style="color: var(--bark-500); margin-bottom: 6px; font-size: 0.95rem;" id="bookModalSubtitle">Booking creates your free Demohub account. You'll use it to book at every retailer, upload your COI once, and manage all your demos in one place. One account per brand, created by the brand.</p>
+                <div class="booking-for-line" id="bookingForLineModal" style="display:none; margin:0 0 10px; padding:10px 14px; background:#e3edd6; border-radius:10px;"></div>
+                <p style="color: var(--bark-500); margin-bottom: 6px; font-size: 0.95rem;" id="bookModalSubtitle" data-booking-as>Booking creates your free Demohub account. You'll use it to book at every retailer, upload your COI once, and manage all your demos in one place. One account per brand, created by the brand.</p>
                 <p style="color: var(--ink-500); margin-bottom: 20px; font-size: 0.82rem; line-height:1.5;" id="bookSignInPrompt">Already have a Demohub account? <a onclick="closeContactInfoModal(); openBrandSignIn();" style="color:var(--forest-700); font-weight:700; text-decoration:underline; cursor:pointer;">Sign in instead</a></p>
                 <div class="form-group"><label class="form-label">Brand name *</label><input type="text" class="form-input" id="bookBrandName" placeholder="Sunrise Foods"></div>
                 <div class="form-group"><label class="form-label">Your name *</label><input type="text" class="form-input" id="bookContactName" placeholder="Jane Doe" required></div>
@@ -2850,6 +2852,10 @@ function supportMailto(a) {
                     const j = await r.json();
                     if (j && j.profile) {
                         window._brandProfile = j.profile;
+                        // 0121: one person, many brands. Keep what the server said about the active brand and the
+                        // person's other brands, and stamp every later request from this page with the brand it shows.
+                        window._brandData = j;
+                        if (j.multi_brand === true && window.DHBrands) window.DHBrands.guard(j.profile.id, j.profile.company_name || '');
                         // 0097: a designated booker books from the saved list only and cannot sign agreements or upload a COI.
                         window._brandRole = j.role === 'booker' ? 'booker' : 'owner';
                         window._brandMe = j.me || null;
@@ -2873,16 +2879,41 @@ function supportMailto(a) {
             if (window._brandProfile) {
                 const displayName = window._brandProfile.company_name || window._brandProfile.email || 'your brand';
                 // 0097: the signed-in banner names the role so a designated booker always knows this is not the full account
-                const shown = window._brandRole === 'booker' ? displayName + ' (designated booker)' : displayName;
+                const multiD = window._brandData && window._brandData.multi_brand === true;
+                const meD = window._brandMe || {};
+                const shown = multiD ? (meD.name || meD.email || displayName) : (window._brandRole === 'booker' ? displayName + ' (designated booker)' : displayName);   // 0121
                 if (banner && name) { name.textContent = shown; banner.classList.add('active'); }
                 if (bannerLanding && nameLanding) { nameLanding.textContent = shown; bannerLanding.classList.add('active'); }
                 if (pill) pill.style.display = 'none';
                 if (pillClient) pillClient.style.display = 'none';
+                renderBookingFor();
             } else {
+                for (const id of ['bookingForLine', 'bookingForLineLanding', 'bookingForLineModal']) { const el = document.getElementById(id); if (el) { el.innerHTML = ''; el.style.display = 'none'; } }
                 if (banner) banner.classList.remove('active');
                 if (bannerLanding) bannerLanding.classList.remove('active');
                 if (pill) pill.style.display = '';
                 if (pillClient) pillClient.style.display = '';
+            }
+        }
+
+        // 0121: "Booking for <Company>" with a switch link, on the landing strip, the booking view and the booking form.
+        // The name comes from the server's answer for THIS session; switching reloads the page so the items, the
+        // certificate gate and the store agreement on screen all belong to the brand that will be stamped on the demo.
+        function switchBookingBrand() {
+            if (!window.DHBrands) return;
+            window.DHBrands.open({
+                title: 'Which brand is this booking for?',
+                confirmSwitch: function () { return !(typeof cart !== 'undefined' && cart && cart.length) || confirm('Switching brand clears the ' + cart.length + ' demo' + (cart.length > 1 ? 's' : '') + ' you have picked, because they were picked for the other brand. Switch anyway?'); },
+            });
+        }
+        window.switchBookingBrand = switchBookingBrand;
+        function renderBookingFor() {
+            const d = window._brandData;
+            for (const id of ['bookingForLine', 'bookingForLineLanding', 'bookingForLineModal']) {
+                const el = document.getElementById(id);
+                if (!el) continue;
+                if (!d || d.multi_brand !== true || !window.DHBrands) { el.innerHTML = ''; el.style.display = 'none'; continue; }
+                window.DHBrands.forLine(el, d, { prefix: 'Booking for', dialog: { title: 'Which brand is this booking for?', confirmSwitch: function () { return !(typeof cart !== 'undefined' && cart && cart.length) || confirm('Switching brand clears the ' + cart.length + ' demo' + (cart.length > 1 ? 's' : '') + ' you have picked, because they were picked for the other brand. Switch anyway?'); } } });
             }
         }
 
@@ -2893,7 +2924,7 @@ function supportMailto(a) {
                     credentials: 'same-origin',
                 });
             } catch (_) {}
-            window._brandProfile = null; window._brandMe = null;
+            window._brandProfile = null; window._brandMe = null; window._brandData = null;
             // signed out: the previous customer's payment link is neither kept nor shown
             forgetPayLink();
             try { const n = document.getElementById('unpaidNotice'); if (n) n.remove(); } catch (_) {}
@@ -2973,6 +3004,8 @@ function supportMailto(a) {
                 if (!r.ok) { err.textContent = j.error || j.message || 'Invalid code.'; btn.disabled=false; btn.textContent=orig; return; }
                 await loadBrandAccountSession();
                 closeBrandSignIn();
+                // 0121: several brands behind this email: ask which one this booking is for before anything is picked.
+                if (j.choose && window.DHBrands) window.DHBrands.open({ title: 'Which brand is this booking for?' });
             } catch (e) { err.textContent = 'Network error.'; btn.disabled=false; btn.textContent=orig; }
         }
         document.addEventListener('click', function(e) {

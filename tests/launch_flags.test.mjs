@@ -22,6 +22,8 @@ const SWITCHES = [
   // 0116 (2026-10-30): connected checkout (the revenue split) is a real switch now, consumed by api/checkout.js.
   // Before 0116 flagSnapshot() reported the literal 'hard_disabled' for this field.
   ['CONNECTED_CHECKOUT_ENABLED', 'connectedCheckout'],
+  // 0121 (2026-11-19): one person, many brands. Off unless exactly "true".
+  ['MULTI_BRAND_ACCESS_ENABLED', 'multiBrandAccess'],
 ];
 const ALL_ENV = [...SWITCHES.map(([e]) => e), 'COI_ENFORCEMENT_MODE', 'LAUNCH_MAX_CART'];
 

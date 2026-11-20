@@ -393,7 +393,7 @@ export default async function handler(req, res) {
     // never from who booked or from the booking's contact address. If this write fails the payer stays unknown and
     // the receipt stays owner-only, which is the safe default.
     try {
-      const payer = { payer_member_id: auth.memberId || null, payer_email: String(auth.email || '').toLowerCase() || null, payer_role: auth.role === 'booker' ? 'booker' : (auth.role === 'owner' ? 'owner' : null) };
+      const payer = { payer_member_id: auth.memberId || null, payer_email: String(auth.email || '').toLowerCase() || null, payer_role: ['booker', 'owner', 'manager'].includes(auth.role) ? auth.role : null };
       const pr = await rest(`payment_attempts?stripe_checkout_session_id=eq.${encodeURIComponent(session.id)}&payment_group_id=eq.${encodeURIComponent(gid)}`, { method: 'PATCH', body: JSON.stringify(payer) });
       if (!pr || !pr.ok) console.warn('payment attempt payer not recorded (receipt stays owner-only):', pr && pr.status);
     } catch (e) { console.warn('payment attempt payer not recorded (receipt stays owner-only):', e && e.message); }

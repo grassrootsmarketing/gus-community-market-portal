@@ -71,7 +71,7 @@ export default async function handler(req, res) {
     // 0097 (Codex BK-4): the brand's own certificate file is for the OWNER; a booker never reads it.
     try {
       const ctx = await resolveBrandIdentity(brandSession);
-      if (ctx && ctx.ok && ctx.brandId === brandId && ctx.role === 'owner') allowed = true;
+      if (ctx && ctx.ok && ctx.brandId === brandId && (ctx.role === 'owner' || ctx.role === 'manager')) allowed = true;
     } catch (_) {}
   }
 

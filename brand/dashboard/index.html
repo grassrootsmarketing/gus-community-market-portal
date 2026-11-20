@@ -38,6 +38,16 @@ body { font-family:'Hanken Grotesk',-apple-system,sans-serif; background:var(--c
 .nav-avatar img { width:100%; height:100%; object-fit:cover; }
 .nav-avatar svg { width:36px; height:36px; display:block; }
 .nav-id { display:flex; flex-direction:column; align-items:flex-start; gap:0; line-height:1.2; }
+/* 0121: the brand switcher sits in the header on a wide screen and becomes a slim band under it on a phone */
+#brandSwitcherSlot:empty { display:none; }
+#brandForBand { display:none; padding:9px 18px; background:#eef5ee; border-bottom:1px solid rgba(15,44,23,0.14); }
+@media (max-width:760px) { #brandSwitcherSlot { display:none; } #brandForBand.on { display:block; } }
+.access-row { display:flex; justify-content:space-between; gap:10px 14px; align-items:center; flex-wrap:wrap; padding:12px 0; border-bottom:1px solid rgba(15,44,23,0.1); }
+.access-row:last-child { border-bottom:0; }
+.access-level { font:inherit; font-size:0.9rem; padding:8px 10px; border:1.5px solid rgba(15,44,23,0.28); border-radius:10px; background:#fff; color:var(--ink-900); }
+.access-opt { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.2); border-radius:12px; cursor:pointer; background:#fff; }
+.access-opt input { margin-top:3px; flex:0 0 auto; }
+.access-opt strong { color:var(--forest-900); }
 .nav-name-line { display:flex; align-items:center; }
 .nav-person { font-size:0.92rem; color:var(--forest-900); font-weight:600; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 6px; }
 .nav-brand { font-size:0.72rem; color:var(--forest-700); font-weight:500; opacity:0.72; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 6px; cursor:default; }
@@ -457,6 +467,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 </head>
 <body>
 
+<script src="/brand/brands.js"></script>
 <nav class="nav">
   <a href="#overview" class="brand" title="Back to your overview">
     <svg class="brand-mark" viewBox="0 0 72 72"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
@@ -473,6 +484,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <a href="#account" class="nav-tab" data-tab="account">Account</a>
   </div>
   <div class="nav-account">
+    <span id="brandSwitcherSlot"></span>
     <div class="nav-avatar" id="navAvatar" title="Click to upload your logo" onclick="brandAvatarClick(event)"><div class="avatar-upload-overlay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div></div>
     <input type="file" id="navAvatarFile" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;">
     <span class="nav-id">
@@ -533,6 +545,7 @@ document.addEventListener('keydown', function(e) {
 });
 </script>
 
+<div id="brandForBand"></div>
 <div id="bookerBand" style="display:none;"></div>
 <div id="agreementBand" style="display:none;"></div>
 <div id="persistentCoiNudge" style="display:none;"></div>
@@ -736,6 +749,19 @@ async function loadData() {
   // 0097: the server says who this session is. A booker sees a narrower portal (tabs below) and the header says so.
   window._brandRole = _data.role === 'booker' ? 'booker' : 'owner';
   window._brandMe = _data.me || null;
+  // 0121: one person, many brands. "owner" | "full" | "booking". Full access sees the owner's portal except the two
+  // owner-only cards (who has access, the password). The header names the brand being worked on and switches in a click.
+  window._brandAccess = (_data.active_brand && _data.active_brand.access) || (window._brandRole === 'booker' ? 'booking' : 'owner');
+  window._multiBrand = _data.multi_brand === true;
+  if (window._multiBrand && window.DHBrands) {
+    window.DHBrands.guard(profile.id, profile.company_name || '');
+    const hasSwitcher = window.DHBrands.mountSwitcher(document.getElementById('brandSwitcherSlot'), _data, { label: 'Working on' });
+    // the switcher already names the brand; the small name block beside the avatar would crowd the tabs
+    const navId = document.querySelector('.nav-account .nav-id'); if (navId) navId.style.display = hasSwitcher ? 'none' : '';
+    const band = document.getElementById('brandForBand');
+    const shown = window.DHBrands.forLine(band, _data, { prefix: 'Working on', onlyIfMany: true });
+    if (band) band.classList.toggle('on', !!shown);
+  }
   document.body.classList.toggle('role-booker', window._brandRole === 'booker');
   // A slim band on every tab says this is the designated booker, not the full account (same gutter as the COI band).
   const bookerBand = document.getElementById('bookerBand');
@@ -760,7 +786,7 @@ async function loadData() {
   const navPerson = document.getElementById('navPerson');
   if (navPerson) navPerson.textContent = window._brandRole === 'booker'
     ? ('Booking as ' + ((window._brandMe && (window._brandMe.name || window._brandMe.email)) || 'booker'))
-    : (profile.contact_name || profile.email || '');
+    : (window._brandAccess === 'full' ? ((window._brandMe && (window._brandMe.name || window._brandMe.email)) || '') : (profile.contact_name || profile.email || ''));   // 0121: Full access shows the person, never the owner's name
   // Add inline verified mark next to brand name in nav if verified
   const navVerifyMark = document.getElementById('navVerifyMark');
   const _st = getBrandStatus(profile);
@@ -1415,7 +1441,7 @@ function renderOverview() {
 
   main.innerHTML = `
     <div class="page-head"><div>
-      <h1>Welcome back${profile.contact_name ? ', ' + escapeHtml(profile.contact_name.split(' ')[0]) : ''}.</h1>
+      <h1>Welcome back${(() => { const n = (window._brandAccess === 'full' ? ((window._brandMe && window._brandMe.name) || '') : (profile.contact_name || '')); return n ? ', ' + escapeHtml(n.split(' ')[0]) : ''; })()}.</h1>
       <div class="sub">One profile, every Demohub retailer.</div>
     </div></div>
     ${actionNeededHtml(demos)}
@@ -2623,7 +2649,89 @@ function renderBookerAccount() {
         <button class="btn btn-secondary" onclick="window.brandSignOut()">Sign out</button>
         <button class="btn btn-ghost" onclick="window.brandSignOutEverywhere && window.brandSignOutEverywhere()">Sign out on all my devices</button>
       </div>
+    </div>${brandsCardHtml()}`;
+  mountBrandsCard();
+}
+// 0121: "Brands you work for" on the Account tab, for every level. Lists the person's brands, their invitations, and
+// lets them ask another brand for access.
+function brandsCardHtml() {
+  if (!window._multiBrand) return '';
+  return `<div class="card" style="margin-bottom:18px;">
+      <h2 style="margin:0 0 6px;">Brands you work for</h2>
+      <div style="font-size:0.9rem;color:var(--ink-700);margin:0 0 14px;line-height:1.5;">One sign-in for every brand you book for. Pick a brand to switch to it. Each brand keeps its own items, insurance, agreements and payments.</div>
+      <div id="brandsCard"></div>
     </div>`;
+}
+function mountBrandsCard() {
+  const el = document.getElementById('brandsCard');
+  if (el && window.DHBrands) window.DHBrands.renderPicker(el, {});
+}
+// 0121 owner card: everyone with access, each with a level, plus requests waiting for an answer.
+function renderAccessCard(el, st, post) {
+  const when = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+  const lv = (st.levels || []);
+  const desc = (k) => { const x = lv.find(l => l.level === k); return x ? x.permissions : ''; };
+  const people = st.people || [], requests = st.requests || [];
+  let h = '';
+  if (requests.length) {
+    h += '<div style="background:#fff8ec; border:1.5px solid #e2c48a; border-radius:14px; padding:14px 16px; margin:0 0 16px;">'
+      + '<div style="font-weight:700; color:var(--forest-900); margin-bottom:6px;">Waiting for your answer</div>'
+      + requests.map(q => '<div class="access-row" data-request="' + escapeHtml(q.id) + '"><div style="flex:1 1 220px; min-width:0;"><div style="font-weight:700; color:var(--forest-900);">' + escapeHtml(q.name || q.email) + '</div>'
+        + '<div style="font-size:0.9rem; color:var(--ink-700);">' + escapeHtml(q.email) + ' asks for ' + escapeHtml(q.level_label) + ', ' + escapeHtml(when(q.asked_at)) + '</div>'
+        + (q.note ? '<div style="font-size:0.88rem; color:var(--ink-700); margin-top:4px;">Their note: ' + escapeHtml(q.note) + '</div>' : '') + '</div>'
+        + '<div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="btn btn-primary" data-answer="approve" data-access="booking">Approve, booking only</button>'
+        + '<button class="btn btn-secondary" data-answer="approve" data-access="full">Approve, full access</button>'
+        + '<button class="btn btn-ghost" data-answer="decline" style="color:#a14e2a;">Decline</button></div></div>').join('') + '</div>';
+  }
+  h += people.length ? people.map(m => '<div class="access-row" data-member="' + escapeHtml(m.id) + '"><div style="flex:1 1 220px; min-width:0;"><div style="font-weight:700; color:var(--forest-900);">' + escapeHtml(m.name || m.email) + '</div>'
+      + '<div style="font-size:0.9rem; color:var(--ink-700);">' + escapeHtml(m.email) + '</div>'
+      + '<div style="font-size:0.84rem; margin-top:3px; color:' + (m.status === 'accepted' ? 'var(--forest-700)' : '#a14e2a') + ';">'
+      + (m.status === 'accepted' ? 'Active since ' + escapeHtml(when(m.accepted_at)) : (m.delivery && m.delivery.status === 'sent' ? 'Invitation sent ' + escapeHtml(when(m.delivery.delivered_at || m.invited_at)) + ', not accepted yet' : 'Invited ' + escapeHtml(when(m.invited_at)) + ', the email may not have gone out. Use Resend.')) + '</div></div>'
+      + '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;"><select class="access-level" data-level aria-label="Access level for ' + escapeHtml(m.email) + '"><option value="booking"' + (m.level === 'booking' ? ' selected' : '') + '>Booking only</option><option value="full"' + (m.level === 'full' ? ' selected' : '') + '>Full access</option></select>'
+      + (m.status === 'pending' ? '<button class="btn btn-secondary" data-resend>Resend</button>' : '')
+      + '<button class="btn btn-ghost" data-revoke data-status="' + escapeHtml(m.status) + '" style="color:#a14e2a;">' + (m.status === 'accepted' ? 'Remove access' : 'Cancel invitation') + '</button></div></div>').join('')
+    : '<div style="font-size:0.92rem; color:var(--ink-700); padding:4px 0 10px;">Nobody else has access yet.</div>';
+  h += '<div style="margin-top:16px; padding-top:16px; border-top:1px solid rgba(15,44,23,0.1);"><div style="font-weight:700; color:var(--forest-900); margin-bottom:8px;">Give someone access</div>'
+    + '<div style="display:grid; gap:8px; max-width:560px;">'
+    + '<input class="input" id="bookerEmail" type="email" placeholder="their email address" aria-label="Their email address">'
+    + '<input class="input" id="bookerName" type="text" placeholder="Their name (optional)" aria-label="Their name">'
+    + '<label class="access-opt"><input type="radio" name="accessLevel" value="booking" checked><span><strong>Booking only</strong><br><span style="font-size:0.86rem; color:var(--ink-700); line-height:1.45;">' + escapeHtml(desc('booking')) + '</span></span></label>'
+    + '<label class="access-opt"><input type="radio" name="accessLevel" value="full"><span><strong>Full access</strong><br><span style="font-size:0.86rem; color:var(--ink-700); line-height:1.45;">' + escapeHtml(desc('full')) + '</span></span></label>'
+    + '<div><button class="btn btn-primary" id="bookerDesignateBtn">Send invitation</button></div></div></div>'
+    + '<div id="bookerMsg" role="status" style="font-size:0.9rem; margin-top:10px; min-height:1em; font-weight:600;"></div>';
+  el.innerHTML = h;
+  const msg = (t, bad) => { const m = document.getElementById('bookerMsg'); if (m) { m.textContent = t; m.style.color = bad ? '#a14e2a' : 'var(--forest-700)'; } };
+  const again = async (text, bad) => { await renderBookerCard(); if (text) msg(text, bad); };
+  el.querySelectorAll('[data-request]').forEach(row => row.querySelectorAll('[data-answer]').forEach(b => b.addEventListener('click', async () => {
+    b.disabled = true;
+    const rr = await post({ action: 'access-request-answer', request_id: row.dataset.request, decision: b.dataset.answer, access: b.dataset.access || undefined });
+    if (!rr.ok) { b.disabled = false; msg(rr.body.message || 'Could not save your answer.', true); return; }
+    again(rr.body.decision === 'approved' ? 'Approved. They can book for you now, and we emailed them.' : 'Declined. We let them know.');
+  })));
+  el.querySelectorAll('[data-member]').forEach(row => {
+    const id = row.dataset.member;
+    const sel = row.querySelector('[data-level]');
+    if (sel) sel.addEventListener('change', async () => { const rr = await post({ action: 'access-set-level', member_id: id, access: sel.value }); again(rr.ok ? 'Access level changed to ' + rr.body.level_label + '.' : (rr.body.message || 'Could not change the level.'), !rr.ok); });
+    const rs = row.querySelector('[data-resend]');
+    if (rs) rs.addEventListener('click', async () => { rs.disabled = true; const rr = await post({ action: 'booker-resend', member_id: id }); rs.disabled = false; msg(rr.ok ? 'Invitation sent again.' : (rr.body.message || 'Could not resend.'), !rr.ok); });
+    const rv = row.querySelector('[data-revoke]');
+    if (rv) rv.addEventListener('click', async () => {
+      if (!confirm(rv.dataset.status === 'accepted' ? 'Remove this person\'s access? Their sign-in to your brand ends immediately. Demos they booked stay on the calendar under your brand.' : 'Cancel this invitation?')) return;
+      rv.disabled = true; const rr = await post({ action: 'booker-revoke', member_id: id });
+      if (!rr.ok) { rv.disabled = false; msg(rr.body.message || 'Could not remove access.', true); return; }
+      again('Access removed.');
+    });
+  });
+  const d = document.getElementById('bookerDesignateBtn');
+  if (d) d.addEventListener('click', async () => {
+    const email = (document.getElementById('bookerEmail').value || '').trim(); const name = (document.getElementById('bookerName').value || '').trim();
+    const access = (el.querySelector('input[name="accessLevel"]:checked') || {}).value || 'booking';
+    if (!email) { msg('Enter their email address.', true); return; }
+    d.disabled = true; const rr = await post({ action: 'booker-designate', email, name, access });
+    d.disabled = false;
+    if (!rr.ok) { msg(rr.body.message || rr.body.error || 'Could not send the invitation.', true); return; }
+    again(rr.body && rr.body.delivery && rr.body.delivery.status !== 'sent' ? (rr.body.message || 'The invitation could not be sent. Use Resend.') : 'Invitation sent. They accept once and then appear here as active.', !!(rr.body && rr.body.delivery && rr.body.delivery.status !== 'sent'));
+  });
 }
 // Owner: the designated booker card (status, designate, resend, revoke). Calls booker-status / booker-designate /
 // booker-resend / booker-revoke; the server enforces owner-only.
@@ -2633,6 +2741,7 @@ async function renderBookerCard() {
   const r = await post({ action: 'booker-status' });
   if (!r.ok) { el.innerHTML = '<div style="color:var(--ink-500); font-size:0.9rem;">The booker status could not be loaded right now.</div>'; return; }
   const st = r.body || {}; const bk = st.booker;
+  if (st.multi) return renderAccessCard(el, st, post);   // 0121: several people, two levels, requests
   const when = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
   const perm = '<div style="font-size:0.86rem; color:var(--ink-700); line-height:1.5; margin:0 0 12px;">' + escapeHtml(st.permissions || '') + '</div>';
   let body = '';
@@ -2676,23 +2785,40 @@ async function renderBookerCard() {
 
 function renderAccount() {
   const p = _data.profile || {};
+  const multi = !!window._multiBrand, full = window._brandAccess === 'full', me = window._brandMe || {};
+  // 0121: the sign-in card and the access card follow the level. Full access never sees who has access or the password.
+  const signedInCard = full
+    ? `<div style="font-size:1.05rem;color:var(--forest-900);font-weight:700;">${escapeHtml(me.name || me.email || '')}</div>
+      <div style="font-size:0.92rem;color:var(--ink-700);margin-top:2px;">${escapeHtml(me.email || '')} · Full access to ${escapeHtml(p.company_name || 'this brand')}</div>
+      <div style="font-size:0.88rem;color:var(--ink-700);margin-top:12px;line-height:1.5;">You can do everything the brand account owner can for ${escapeHtml(p.company_name || 'this brand')}: book and pay for demos, edit the profile and items, upload the insurance certificate and agree to store policies. Only the owner (${escapeHtml(p.email || 'the owner')}) can change who has access, and can end this access at any time.</div>`
+    : `<div style="font-size:1.05rem;color:var(--forest-900);font-weight:700;">${escapeHtml(p.company_name || 'your brand')}</div>
+      <div style="font-size:0.92rem;color:var(--ink-500);margin-top:2px;">${escapeHtml(p.email || '')}</div>
+      <div style="font-size:0.88rem;color:var(--ink-700);margin-top:12px;line-height:1.5;">${multi
+        ? 'This is the owner sign-in of your brand account. If an agency or a colleague books demos for you, give them their own access below instead of sharing this sign-in: pick Booking only or Full access, and remove it whenever you like. Every booking is still made in your brand\'s name under your insurance and agreements.'
+        : 'One account per brand, created by the brand, and this is its owner sign-in. If someone else books demos for you, designate them as your booker below: they get their own sign-in, every booking is still made in your brand\'s name under your insurance and agreements, and they never see your payments or change your items.'}</div>`;
+  const accessCard = full ? '' : (multi
+    ? `<div class="card" style="margin-bottom:18px;">
+      <h2 style="margin:0 0 6px;">People with access</h2>
+      <div style="font-size:0.9rem;color:var(--ink-700);margin:0 0 12px;line-height:1.5;">Give an agency rep or a colleague their own sign-in for ${escapeHtml(p.company_name || 'your brand')}. They never need your email or a shared password, and you can remove them at any time.</div>
+      <div id="bookerCard"><div style="font-size:0.9rem;color:var(--ink-500);">Loading</div></div>
+    </div>`
+    : `<div class="card" style="margin-bottom:18px;">
+      <h2 style="margin:0 0 6px;">Designated booker</h2>
+      <div style="font-size:0.9rem;color:var(--ink-500);margin:0 0 12px;line-height:1.5;">One other person can book demos for ${escapeHtml(p.company_name || 'your brand')} with their own sign-in. They use your saved items and your insurance certificate; they cannot change them or see your payments.</div>
+      <div id="bookerCard"><div style="font-size:0.9rem;color:var(--ink-500);">Loading</div></div>
+    </div>`);
   main.innerHTML = `
     <div class="page-head"><div><h1>Account</h1><div class="sub">Your sign-in and notification settings.</div></div></div>
     <div class="card" style="margin-bottom:18px;">
       <h2 style="margin:0 0 6px;">Signed in as</h2>
-      <div style="font-size:1.05rem;color:var(--forest-900);font-weight:700;">${escapeHtml(p.company_name || 'your brand')}</div>
-      <div style="font-size:0.92rem;color:var(--ink-500);margin-top:2px;">${escapeHtml(p.email || '')}</div>
-      <div style="font-size:0.88rem;color:var(--ink-700);margin-top:12px;line-height:1.5;">One account per brand, created by the brand, and this is its owner sign-in. If someone else books demos for you, designate them as your booker below: they get their own sign-in, every booking is still made in your brand's name under your insurance and agreements, and they never see your payments or change your items.</div>
+      ${signedInCard}
       <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;">
         <button class="btn btn-secondary" onclick="window.brandSignOut()">Sign out</button>
         <a class="btn btn-ghost" href="mailto:david@demohubhq.com?subject=Demohub%20account%20question">Email support</a>
       </div>
     </div>
-    <div class="card" style="margin-bottom:18px;">
-      <h2 style="margin:0 0 6px;">Designated booker</h2>
-      <div style="font-size:0.9rem;color:var(--ink-500);margin:0 0 12px;line-height:1.5;">One other person can book demos for ${escapeHtml(p.company_name || 'your brand')} with their own sign-in. They use your saved items and your insurance certificate; they cannot change them or see your payments.</div>
-      <div id="bookerCard"><div style="font-size:0.9rem;color:var(--ink-500);">Loading</div></div>
-    </div>
+    ${accessCard}
+    ${brandsCardHtml()}
     <div class="card" style="margin-bottom:18px;">
       <h2 style="margin:0 0 14px;">Notifications</h2>
       <div style="font-size:0.92rem;color:var(--ink-700);line-height:1.5;">
@@ -2712,6 +2838,7 @@ function renderAccount() {
     </div>
   `;
   if (typeof renderBookerCard === 'function') renderBookerCard();   // 0097
+  mountBrandsCard();   // 0121
 }
 
 // ===== Post-booking welcome =====

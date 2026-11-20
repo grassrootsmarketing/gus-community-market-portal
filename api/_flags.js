@@ -24,6 +24,8 @@
 //                                                         api/find-retailer.js (job required only when on)
 //   connectedCheckout     CONNECTED_CHECKOUT_ENABLED      api/checkout.js (409 for a non-keeps-all store  false
 //                                                         when off; on = the store must be payout-ready)
+//   multiBrandAccess      MULTI_BRAND_ACCESS_ENABLED      api/_brand-identity.js (Full access role), api/brand-account.js  false
+//                                                         (brand list, switch, access levels, requests), api/brand-signup.js
 
 // G0-v2-3: LITERAL comparison. No trimming, no case-folding. "TRUE", " true ", "True" are all
 // DISABLED. Normalisation would contradict the stated safety property, so the strict form is the
@@ -94,6 +96,14 @@ export const FLAGS = {
   // that already exists keeps working through every later path (webhook apply, refunds, workers), which never
   // consult this flag. Read at request time: set in Vercel (Production and Preview separately) and redeploy.
   get connectedCheckout() { return exactTrue(process.env.CONNECTED_CHECKOUT_ENABLED); },
+  // One person, many brands (0121, 2026-11-19). Exactly "true" = one email may own a brand AND hold accepted access
+  // to other brands: the sign-in picker, the brand switcher, the "Full access" level, several people per brand, and
+  // access requests approved by the owner are all live, and granting access no longer needs BRAND_INVITE_ENABLED.
+  // Anything else = today's behaviour: one identity per email and one booking-only person per brand (enforced in the
+  // database by brand_access_grant(p_multi => false)), no picker, no switcher, no requests; a person who already holds
+  // "Full access" keeps signing in but is treated as "Booking only" until the switch is back on. Read at request time:
+  // set in Vercel (Production and Preview separately) and redeploy.
+  get multiBrandAccess() { return exactTrue(process.env.MULTI_BRAND_ACCESS_ENABLED); },
 };
 
 // The COI worker's own mode ladder. Parsed here with the SAME rule the worker uses so the probe and
@@ -143,6 +153,7 @@ export function flagSnapshot() {
     coiEnforcementEffective: coiEnforcementEffective(),
     // 0116: an enforced control (api/checkout.js). Before 0116 this field was the literal 'hard_disabled'.
     connectedCheckout: FLAGS.connectedCheckout,
+    multiBrandAccess: FLAGS.multiBrandAccess,
     max_cart: maxCartSize(),
   };
 }

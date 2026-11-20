@@ -10,7 +10,8 @@ import { FLAGS } from './_flags.js';
 import { monthlyOverviewWindow } from './_monthly-overview.js';   // the month the store's monthly summary email reports on
 import { monthlySummaryDue, monthAfter, summarizeMonth, monthlySummaryEmail } from './_monthly-summary.js';   // when it is due, its figures and its look
 import { hashCode } from './_verify.js';
-import { resolveBrandIdentity, requireRole, bookingBelongsTo, ROLES } from './_brand-identity.js';   // 0097: the brand identity boundary
+import { resolveBrandIdentity, requireRole, requireOwner, bookingBelongsTo, brandHeaderMismatch, BRAND_CHANGED_BODY, ROLES } from './_brand-identity.js';   // 0097: the brand identity boundary
+import { actionEmail } from './_code-email.js';   // 0121: the branded card for access emails
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
@@ -429,6 +430,8 @@ async function sha256Hex(str) {
 
 // 0097 (Codex BK-4): the authorization contract for this route. See the role matrix in the booker design document.
 const PUBLIC_ACTIONS = new Set(['booking-signup', 'signup', 'login', 'login-password', 'verify-code', 'verify', 'cal', 'cron', 'booker-accept-start', 'booker-accept',
+  // 0121: the owner answers an access request from the email, with the token as the proof and no sign-in
+  'access-request-view', 'access-request-decide',
   // retired team actions answer 410 on their own, with or without a session
   'team-list', 'team-invite', 'team-remove', 'team-update-role']);
 const ACTION_ROLES = {
@@ -442,10 +445,22 @@ const ACTION_ROLES = {
   // told about the move (the owner; move notices go to the owner only) is the one who answers. Listed explicitly so
   // the default-deny is a decision, not an accident.
   'move-respond': ['owner'],
+  // 0121: a person's own brands. Any signed-in level may list them, switch between them, accept or leave access, and
+  // ask another brand's owner for access.
+  'brand-list': ['owner', 'booker'],
+  'brand-switch': ['owner', 'booker'],
+  'access-accept': ['owner', 'booker'],
+  'access-leave': ['owner', 'booker'],
+  'access-request': ['owner', 'booker'],
   // everything else is owner-only: profile-update, upload-*, remove-*, receipt-resend, set-password, claim-status,
   // cal_token, cal_revoke, booker-designate, booker-status, booker-resend, booker-revoke
 };
-const BOOKER_MUTATING_ACTIONS = new Set(['booker-designate', 'booker-resend', 'booker-revoke', 'booker-accept-start', 'booker-accept']);
+const BOOKER_MUTATING_ACTIONS = new Set(['booker-designate', 'booker-resend', 'booker-revoke', 'booker-accept-start', 'booker-accept',
+  'brand-switch', 'access-accept', 'access-leave', 'access-request', 'access-request-view', 'access-request-decide', 'access-request-answer', 'access-set-level']);
+// 0121: "Full access" (role manager) passes every gate that lists the owner, EXCEPT these. Who has access to the brand
+// and the owner's own password stay with the owner, so full access can never remove or replace the owner.
+const STRICT_OWNER_ACTIONS = new Set(['booker-designate', 'booker-resend', 'booker-revoke', 'booker-status', 'access-set-level', 'access-request-answer', 'set-password']);
+const FULL_ACCESS_PERMISSIONS_TEXT = 'Full access can do everything the brand account owner can: book demos, pay, see payments and receipts, edit the profile and items, upload the insurance certificate and agree to a store\'s policies. Full access cannot change who has access to the brand or the owner\'s own sign-in.';
 async function verifyIdentityOrStatus(sessionToken) {
   const token = String(sessionToken || '');
   if (!token) return { ok: false, status: 401 };
@@ -536,7 +551,10 @@ export default async function handler(req, res) {
     const ctx = await verifyIdentityOrStatus(getBrandSessionFromReq(req, body) || '');
     if (!ctx.ok) return jsonResp(res, ctx.status, { error: ctx.status === 503 ? 'auth_unavailable' : 'Not authenticated' });
     const allowed = Object.prototype.hasOwnProperty.call(ACTION_ROLES, action) ? ACTION_ROLES[action] : [ROLES.OWNER];
-    const deny = requireRole(ctx, ...allowed);
+    // 0121: a page still showing another brand is refused before anything is read or written. The actions that list
+    // or change the active brand, and signing out, are exempt: they are how a stale page recovers.
+    if (!['brand-list', 'brand-switch', 'logout', 'logout-everywhere'].includes(action) && brandHeaderMismatch(req, ctx)) return jsonResp(res, 409, BRAND_CHANGED_BODY);
+    const deny = (STRICT_OWNER_ACTIONS.has(action) ? requireOwner(ctx) : null) || requireRole(ctx, ...allowed);
     if (deny) return jsonResp(res, deny.status, deny.body);
   }
 
@@ -599,7 +617,7 @@ export default async function handler(req, res) {
         }
       } catch (_) {}
       try {
-        const mR = await sb(`brand_members?email=eq.${encodeURIComponent(addr)}&role=eq.booker&status=eq.accepted&select=brand_id,email&limit=1`);
+        const mR = await sb(`brand_members?email=eq.${encodeURIComponent(addr)}&role=in.(booker,manager)&status=eq.accepted&select=brand_id,email&order=last_active_at.desc.nullslast,accepted_at.desc&limit=1`);   // 0121: either level, the brand used last
         const m = (await mR.json())[0];
         if (m) return m;
       } catch (_) {}
@@ -827,7 +845,7 @@ export default async function handler(req, res) {
         if (!Array.isArray(j)) throw new Error(name + '_malformed');
         return j;
       };
-      if (ctx.role === ROLES.OWNER) try {
+      if (ctx.role === ROLES.OWNER || ctx.role === ROLES.MANAGER) try {
         const groupsAll = await readRows(await sb(`payment_groups?brand_id=eq.${brandId}&status=in.(paid,partially_refunded,refunded)&select=id,retailer_id,status,total_customer_amount,currency,created_at,retailers(id,name,slug)&order=created_at.desc&limit=${PAYMENTS_CAP + 1}`), 'payment_groups');
         if (groupsAll.length > PAYMENTS_CAP) paymentsTruncated = true;
         const groups = groupsAll.slice(0, PAYMENTS_CAP);
@@ -861,9 +879,21 @@ export default async function handler(req, res) {
       if (paymentsTruncated) truncated.push('payments');
       // provisional_holds tells the booking page whether an unverified-COI brand may proceed
       // (server gate in api/book.js stays authoritative either way).
+      // 0121: the person's brands and pending invitations, for the switcher and the "Booking for" line. Read by the
+      // SESSION's email only. A failed read leaves the switcher out; it never blocks the portal.
+      let multi = {};
+      if (FLAGS.multiBrandAccess) {
+        multi = { multi_brand: true, active_brand: { brand_id: brandId, company_name: (profile && (profile.company_name || profile.email)) || '', access: ctx.role === ROLES.OWNER ? 'owner' : ctx.role === ROLES.MANAGER ? 'full' : 'booking' }, brands: [], invites: [] };
+        try {
+          const lr = await sb('rpc/brand_access_list', { method: 'POST', body: JSON.stringify({ p_email: ctx.email }) });
+          const lj = lr.ok ? await lr.json() : null;
+          if (lj && Array.isArray(lj.brands)) { multi.brands = lj.brands; multi.invites = Array.isArray(lj.invites) ? lj.invites : []; }
+        } catch (e) { console.warn('brand list lookup failed:', (e && e.message) || e); }
+      }
       if (ctx.role === ROLES.BOOKER) {
         // Codex BK-4: an explicit allowlist. No payments, no receipts, no certificate URL, no private profile fields.
         return jsonResp(res, 200, {
+          ...multi,
           role: 'booker', me: { email: ctx.email, name: ctx.name || null, member_id: ctx.memberId },
           profile: bookerProfileView(profile),
           demos: demos.map(d => bookerDemoView(d, ctx.memberId)),
@@ -872,7 +902,9 @@ export default async function handler(req, res) {
           payments: [], unavailable: unavailable.filter(n => n !== 'payments'), truncated: truncated.filter(n => n !== 'payments'), provisional_holds: FLAGS.provisionalHolds,
         });
       }
-      return jsonResp(res, 200, { role: 'owner', me: { email: ctx.email, name: ctx.name || null, member_id: ctx.memberId }, profile, demos, contacts, pending_bookings, payments, unavailable, truncated, provisional_holds: FLAGS.provisionalHolds });
+      // 0121: 'manager' is Full access. The pages treat every role that is not 'booker' as the full portal, and use
+      // active_brand.access to hide the two owner-only cards (who has access, the password).
+      return jsonResp(res, 200, { role: ctx.role === ROLES.MANAGER ? 'manager' : 'owner', me: { email: ctx.email, name: ctx.name || null, member_id: ctx.memberId }, profile, demos, contacts, pending_bookings, payments, unavailable, truncated, provisional_holds: FLAGS.provisionalHolds, ...multi });
     }
 
     // ===== Receipt resend (2026-10-11, Codex PR-4/PR-6): the brand asks for another copy of a receipt =====
@@ -1701,7 +1733,8 @@ export default async function handler(req, res) {
       if (!rlAccount.allowed) return jsonResp(res, rlAccount.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlAccount.error || 'too_many_requests', message: 'Too many attempts for this account. Try again later.' });
       // Look up brand by email (via brand_members which is the shareable auth surface).
       // EXACT match, attacker-supplied email; a wildcard would resolve an arbitrary account.
-      const lookupR = await sb(`brand_members?email=eq.${encodeURIComponent(email)}&select=brand_id,email,brands(password_hash)`);
+      // 0121: the OWNER row only. An email with access to other brands must never be matched against those brands' passwords.
+      const lookupR = await sb(`brand_members?email=eq.${encodeURIComponent(email)}&role=eq.owner&select=brand_id,email,brands(password_hash)`);
       let member = (await lookupR.json())[0];
       let storedHash = member && member.brands && member.brands.password_hash;
       if (!member) {
@@ -1766,8 +1799,22 @@ export default async function handler(req, res) {
     // Owner actions: designate, status, resend, revoke. Public, token-bound actions: accept-start, accept.
     const inviteHash = (token) => hashCode('booker_invite', 'booker_invite', String(token || ''));
     const bookerRow = (m) => m ? ({ id: m.id, email: m.email, name: m.name || null, status: m.status, invited_at: m.created_at, accepted_at: m.accepted_at || null, revoked_at: m.revoked_at || null }) : null;
-    async function sendBookerInvite(brandName, toEmail, token, inviterEmail) {
+    async function sendBookerInvite(brandName, toEmail, token, inviterEmail, role) {
       const link = siteLink(_b, `/brand/accept?t=${encodeURIComponent(token)}`);
+      if (FLAGS.multiBrandAccess) {
+        // 0121: one branded card for both levels. The level and what it allows are stated before anything is accepted.
+        const full = role === 'manager';
+        return await sendMailQuietly({
+          from: FROM_EMAIL, to: toEmail, replyTo: REPLY_TO,
+          subject: `${brandName} gave you ${full ? 'full access' : 'booking access'} on Demohub`,
+          html: actionEmail({ eyebrow: full ? 'Full access' : 'Booking only', heading: `You are invited to work for ${brandName}.`,
+            paragraphs: [`${inviterEmail} invited you to ${full ? 'manage' : 'book demos for'} ${brandName} on Demohub.`, full ? FULL_ACCESS_PERMISSIONS_TEXT : BOOKER_PERMISSIONS_TEXT,
+              'If you already use Demohub for another brand, this brand is added to your list and you switch between them with one click.'],
+            button: { label: 'Review and accept', url: link },
+            note: 'The link is good for 24 hours and only works with a code we send to this address when you open it. If you were not expecting this, ignore the email and nothing happens.',
+            reason: 'You are receiving this because a brand invited this address on Demohub.' }),
+        }, { binding: _b });
+      }
       return await sendMailQuietly({
         from: FROM_EMAIL, to: toEmail, replyTo: REPLY_TO,
         subject: `${brandName} asked you to book demos on Demohub`,
@@ -1791,78 +1838,120 @@ export default async function handler(req, res) {
     }
     // 0098 (Codex BC-6): the invitation's delivery state is recorded and reported. "sent" means the provider accepted
     // the message; it is never claimed to be inbox delivery.
-    async function deliverInvite(inviteId, brandName, toEmail, token, inviterEmail) {
+    async function deliverInvite(inviteId, brandName, toEmail, token, inviterEmail, role) {
       let status = 'not_configured', detail = null;
       if (_b.resendApiKey) {
-        try { const r = await sendBookerInvite(brandName, toEmail, token, inviterEmail); status = r && r.ok ? 'sent' : 'failed'; detail = r && !r.ok ? String(r.error || r.status || 'send_failed').slice(0, 120) : null; }
+        try { const r = await sendBookerInvite(brandName, toEmail, token, inviterEmail, role); status = r && r.ok ? 'sent' : 'failed'; detail = r && !r.ok ? String(r.error || r.status || 'send_failed').slice(0, 120) : null; }
         catch (e) { status = 'failed'; detail = String(e && e.message || e).slice(0, 120); }
       }
       try { await sb(`brand_booker_invites?id=eq.${encodeURIComponent(inviteId)}`, { method: 'PATCH', body: JSON.stringify({ delivery_status: status, delivery_detail: detail, delivered_at: status === 'sent' ? new Date().toISOString() : null }) }); } catch (_) {}
       return { status, detail };
     }
 
+    // 0121: the two access levels. 'booker' = Booking only, 'manager' = Full access.
+    const multiOn = () => FLAGS.multiBrandAccess;
+    const grantsOn = () => FLAGS.brandInviteEnabled || FLAGS.multiBrandAccess;
+    const levelOf = (role) => role === 'manager' ? 'full' : 'booking';
+    const levelLabel = (role) => role === 'manager' ? 'Full access' : 'Booking only';
+    const roleFromLevel = (v) => (multiOn() && (String(v || '') === 'full' || String(v || '') === 'manager')) ? 'manager' : 'booker';
+    const permissionsFor = (role) => role === 'manager' ? FULL_ACCESS_PERMISSIONS_TEXT : BOOKER_PERMISSIONS_TEXT;
+    const personRow = (m) => m ? ({ ...bookerRow(m), level: levelOf(m.role), level_label: levelLabel(m.role) }) : null;
+
     if (action === 'booker-status') {
       const ctxB = await verifyIdentity(getBrandSessionFromReq(req, body) || '');
       if (!ctxB) return jsonResp(res, 401, { error: 'Not authenticated' });
-      const rows = await (await sb(`brand_members?brand_id=eq.${ctxB.brandId}&role=eq.booker&order=created_at.desc&select=id,email,name,status,created_at,accepted_at,revoked_at&limit=10`)).json();
+      const rows = await (await sb(`brand_members?brand_id=eq.${ctxB.brandId}&role=in.(booker,manager)&order=created_at.desc&select=id,email,name,role,status,created_at,accepted_at,revoked_at&limit=60`)).json();
       const list = Array.isArray(rows) ? rows : [];
       const live = list.find(m => m.status !== 'revoked') || null;
-      let delivery = null;
-      if (live && live.status === 'pending') {
-        const inv = await (await sb(`brand_booker_invites?member_id=eq.${live.id}&used_at=is.null&superseded_at=is.null&order=created_at.desc&select=delivery_status,delivery_detail,delivered_at,expires_at&limit=1`)).json();
+      const deliveryOf = async (m) => {
+        if (!m || m.status !== 'pending') return null;
+        const inv = await (await sb(`brand_booker_invites?member_id=eq.${m.id}&used_at=is.null&superseded_at=is.null&order=created_at.desc&select=delivery_status,delivery_detail,delivered_at,expires_at&limit=1`)).json();
         const i = Array.isArray(inv) ? inv[0] : null;
-        delivery = i ? { status: i.delivery_status || 'unknown', delivered_at: i.delivered_at || null, expires_at: i.expires_at } : { status: 'none' };
+        return i ? { status: i.delivery_status || 'unknown', delivered_at: i.delivered_at || null, expires_at: i.expires_at } : { status: 'none' };
+      };
+      const delivery = await deliveryOf(live);
+      const out = { ok: true, enabled: !!grantsOn(), booker: bookerRow(live), delivery, history: list.filter(m => m.status === 'revoked').slice(0, 5).map(bookerRow), permissions: BOOKER_PERMISSIONS_TEXT };
+      if (multiOn()) {
+        // 0121: everyone with access, each with its level, and the requests waiting for the owner's answer.
+        const people = [];
+        for (const m of list.filter(x => x.status !== 'revoked')) people.push({ ...personRow(m), delivery: await deliveryOf(m) });
+        let requests = [];
+        try {
+          const rq = await (await sb(`brand_access_requests?brand_id=eq.${ctxB.brandId}&status=eq.pending&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&order=created_at.desc&select=id,requester_email,requester_name,requester_note,requested_role,created_at&limit=20`)).json();
+          requests = (Array.isArray(rq) ? rq : []).map(r => ({ id: r.id, email: r.requester_email, name: r.requester_name || null, note: r.requester_note || null, level: levelOf(r.requested_role), level_label: levelLabel(r.requested_role), asked_at: r.created_at }));
+        } catch (_) { requests = []; }
+        Object.assign(out, { multi: true, people, requests, history: list.filter(m => m.status === 'revoked').slice(0, 5).map(personRow),
+          levels: [{ level: 'booking', label: 'Booking only', permissions: BOOKER_PERMISSIONS_TEXT }, { level: 'full', label: 'Full access', permissions: FULL_ACCESS_PERMISSIONS_TEXT }] });
       }
-      return jsonResp(res, 200, { ok: true, enabled: !!FLAGS.brandInviteEnabled, booker: bookerRow(live), delivery, history: list.filter(m => m.status === 'revoked').slice(0, 5).map(bookerRow), permissions: BOOKER_PERMISSIONS_TEXT });
+      return jsonResp(res, 200, out);
     }
 
     if (action === 'booker-designate') {
-      if (!FLAGS.brandInviteEnabled) return jsonResp(res, 503, { error: 'brand_invite_disabled', message: 'Designating a booker is not switched on yet.' });
+      if (!grantsOn()) return jsonResp(res, 503, { error: 'brand_invite_disabled', message: 'Designating a booker is not switched on yet.' });
       const ctxB = await verifyIdentity(getBrandSessionFromReq(req, body) || '');
       if (!ctxB) return jsonResp(res, 401, { error: 'Not authenticated' });
       const email = String(body.email || '').trim().toLowerCase();
       const name = String(body.name || '').trim().slice(0, 120) || null;
       if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return jsonResp(res, 400, { error: 'Valid email required' });
       if (email === ctxB.email) return jsonResp(res, 400, { error: 'owner_is_owner', message: 'That is the account owner\'s email. The owner can already book.' });
-      const rl = await checkRateLimitByKey('booker-designate:' + ctxB.brandId, 10);
+      const rl = await checkRateLimitByKey('booker-designate:' + ctxB.brandId, multiOn() ? 30 : 10);
       if (!rl.allowed) return jsonResp(res, rl.error === 'rate_limit_unavailable' ? 503 : 429, { error: rl.error || 'too_many_requests' });
-      const live = await (await sb(`brand_members?brand_id=eq.${ctxB.brandId}&role=eq.booker&status=in.(pending,accepted)&select=id,email,status&limit=1`)).json();
-      if (Array.isArray(live) && live[0]) return jsonResp(res, 409, { error: 'booker_already_designated', message: 'This brand already has a designated booker. Revoke them first to designate someone else.', booker: { email: live[0].email, status: live[0].status } });
-      // BK-1: one identity per email. The database refuses this too (trigger + index); the check here is for the message.
-      const ownsBrand = await (await sb(`brands?email=eq.${encodeURIComponent(email)}&select=id&limit=1`)).json();
-      const liveElsewhere = await (await sb(`brand_members?email=eq.${encodeURIComponent(email)}&status=in.(pending,accepted)&select=id&limit=1`)).json();
-      if ((Array.isArray(ownsBrand) && ownsBrand[0]) || (Array.isArray(liveElsewhere) && liveElsewhere[0])) {
+      // 0121: one database transaction under the brand row lock decides. With the multi-brand switch off it applies the
+      // 0097 rules (booking only, one person per brand, one identity per email); with it on, an email that owns its own
+      // brand or already has access to other brands is welcome, and the owner picks the level.
+      const role = roleFromLevel(body.access);
+      const gr = await sb('rpc/brand_access_grant', { method: 'POST', body: JSON.stringify({ p_brand_id: ctxB.brandId, p_email: email, p_name: name, p_role: role, p_by_email: ctxB.email, p_multi: multiOn() }) });
+      if (!gr.ok) return jsonResp(res, 503, { error: 'designate_unavailable' });
+      const g = await gr.json();
+      if (g.outcome === 'owner_is_owner') return jsonResp(res, 400, { error: 'owner_is_owner', message: 'That is the account owner\'s email. The owner can already book.' });
+      if (g.outcome === 'booker_already_designated' || (g.outcome === 'already_has_access' && !multiOn())) {
+        return jsonResp(res, 409, { error: 'booker_already_designated', message: 'This brand already has a designated booker. Revoke them first to designate someone else.', booker: { email: g.email || email, status: g.status || null } });
+      }
+      if (g.outcome === 'already_has_access') return jsonResp(res, 409, { error: 'already_has_access', message: g.status === 'pending' ? 'That person already has an invitation waiting. Use Resend if they did not get it.' : 'That person already has access to this brand.' });
+      if (g.outcome === 'email_in_use') {
+        // One identity per email (BK-1, switch off): say so without naming the other brand.
         return jsonResp(res, 409, { error: 'email_in_use', message: 'That email already has a Demohub brand account or booking access elsewhere, so it cannot be your booker. Use a different address.' });
       }
-      const created = await sb('brand_members', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ brand_id: ctxB.brandId, email, name, role: 'booker', status: 'pending', invited_by_email: ctxB.email }) });
-      if (created.status === 409) {
-        // One identity per email (BK-1): the address owns a brand or is a live member elsewhere. Say so without
-        // naming the other brand.
-        return jsonResp(res, 409, { error: 'email_in_use', message: 'That email already has a Demohub brand account or booking access elsewhere, so it cannot be your booker. Use a different address.' });
-      }
-      if (!created.ok) return jsonResp(res, 503, { error: 'designate_unavailable' });
-      const member = (await created.json())[0];
-      const brand = (await (await sb(`brands?id=eq.${ctxB.brandId}&select=company_name`)).json())[0];
+      if (g.outcome === 'too_many_people') return jsonResp(res, 409, { error: 'too_many_people', message: 'This brand already has the most people it can give access to. Remove someone first.' });
+      if (g.outcome !== 'ok' || !g.member) return jsonResp(res, 400, { error: 'designate_refused' });
+      const member = g.member;
+      const brand = { company_name: g.brand_name };
       let inv;
-      try { inv = await createInvite(member, ctxB.brandId, email, ctxB.email); } catch (_) { return jsonResp(res, 503, { error: 'invite_unavailable', message: 'The booker was recorded but the invitation could not be created. Use Resend.', booker: bookerRow(member), delivery: { status: 'none' } }); }
-      const delivery = await deliverInvite(inv.inviteId, (brand && brand.company_name) || 'A brand', email, inv.token, ctxB.email);
-      return jsonResp(res, 200, { ok: true, booker: bookerRow(member), delivery, message: delivery.status === 'sent' ? 'Invitation sent.' : delivery.status === 'failed' ? 'The booker is recorded but the invitation email could not be sent. Use Resend.' : 'The booker is recorded; email is not configured in this environment, so no invitation went out.' });
+      try { inv = await createInvite(member, ctxB.brandId, email, ctxB.email); } catch (_) { return jsonResp(res, 503, { error: 'invite_unavailable', message: 'The booker was recorded but the invitation could not be created. Use Resend.', booker: personRow(member), delivery: { status: 'none' } }); }
+      const delivery = await deliverInvite(inv.inviteId, (brand && brand.company_name) || 'A brand', email, inv.token, ctxB.email, member.role);
+      return jsonResp(res, 200, { ok: true, booker: personRow(member), delivery, message: delivery.status === 'sent' ? 'Invitation sent.' : delivery.status === 'failed' ? 'The booker is recorded but the invitation email could not be sent. Use Resend.' : 'The booker is recorded; email is not configured in this environment, so no invitation went out.' });
     }
 
     if (action === 'booker-resend') {
-      if (!FLAGS.brandInviteEnabled) return jsonResp(res, 503, { error: 'brand_invite_disabled' });
+      if (!grantsOn()) return jsonResp(res, 503, { error: 'brand_invite_disabled' });
       const ctxB = await verifyIdentity(getBrandSessionFromReq(req, body) || '');
       if (!ctxB) return jsonResp(res, 401, { error: 'Not authenticated' });
-      const rl = await checkRateLimitByKey('booker-resend:' + ctxB.brandId, 12);
+      const rl = await checkRateLimitByKey('booker-resend:' + ctxB.brandId, multiOn() ? 30 : 12);
       if (!rl.allowed) return jsonResp(res, rl.error === 'rate_limit_unavailable' ? 503 : 429, { error: 'too_many_requests', message: 'You can resend once every five minutes.' });
-      const rows = await (await sb(`brand_members?brand_id=eq.${ctxB.brandId}&role=eq.booker&status=eq.pending&select=id,email,name,status,created_at&limit=1`)).json();
+      // 0121: with several people per brand the page names the invitation; without an id it is the one pending row.
+      const wanted = /^[0-9a-f-]{36}$/i.test(String(body.member_id || '')) ? `&id=eq.${encodeURIComponent(String(body.member_id))}` : '';
+      const rows = await (await sb(`brand_members?brand_id=eq.${ctxB.brandId}&role=in.(booker,manager)&status=eq.pending${wanted}&order=created_at.desc&select=id,email,name,role,status,created_at&limit=1`)).json();
       const member = Array.isArray(rows) ? rows[0] : null;
       if (!member) return jsonResp(res, 404, { error: 'no_pending_booker', message: 'There is no pending invitation to resend.' });
       const brand = (await (await sb(`brands?id=eq.${ctxB.brandId}&select=company_name`)).json())[0];
       let inv;
       try { inv = await createInvite(member, ctxB.brandId, member.email, ctxB.email); } catch (_) { return jsonResp(res, 503, { error: 'invite_unavailable' }); }
-      const delivery = await deliverInvite(inv.inviteId, (brand && brand.company_name) || 'A brand', member.email, inv.token, ctxB.email);
-      return jsonResp(res, 200, { ok: true, booker: bookerRow(member), delivery, message: delivery.status === 'sent' ? 'Invitation sent again.' : 'The invitation could not be sent. Try again in a few minutes.' });
+      const delivery = await deliverInvite(inv.inviteId, (brand && brand.company_name) || 'A brand', member.email, inv.token, ctxB.email, member.role);
+      return jsonResp(res, 200, { ok: true, booker: personRow(member), delivery, message: delivery.status === 'sent' ? 'Invitation sent again.' : 'The invitation could not be sent. Try again in a few minutes.' });
+    }
+
+    // 0121 owner action: change someone's level between Booking only and Full access.
+    if (action === 'access-set-level') {
+      if (!multiOn()) return jsonResp(res, 404, { error: 'multi_brand_disabled' });
+      const ctxB = await verifyIdentity(getBrandSessionFromReq(req, body) || '');
+      if (!ctxB) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const memberId = String(body.member_id || '');
+      if (!/^[0-9a-f-]{36}$/i.test(memberId) || !['full', 'booking'].includes(String(body.access || ''))) return jsonResp(res, 400, { error: 'member_id and access required' });
+      const rr = await sb('rpc/brand_access_set_role', { method: 'POST', body: JSON.stringify({ p_brand_id: ctxB.brandId, p_member_id: memberId, p_role: roleFromLevel(body.access) }) });
+      if (!rr.ok) return jsonResp(res, 503, { error: 'access_unavailable' });
+      const out = await rr.json();
+      if (out.outcome !== 'ok') return jsonResp(res, out.outcome === 'not_found' ? 404 : 409, { error: out.outcome });
+      return jsonResp(res, 200, { ok: true, level: levelOf(out.role), level_label: levelLabel(out.role) });
     }
 
     if (action === 'booker-revoke') {
@@ -1901,7 +1990,7 @@ export default async function handler(req, res) {
         html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#1c1c1a;"><p style="font-size:15px;">Enter this code on the acceptance page to confirm you hold this address. It expires in 30 minutes.</p><div style="font-family:Menlo,Consolas,monospace;font-size:32px;font-weight:700;letter-spacing:0.15em;color:#0f2c17;">${code}</div><p style="font-size:13px;color:#6b6a64;margin-top:24px;">If you did not open an invitation from ${escapeText(set.brand_name || 'a brand')}, ignore this email.</p></div>` }, { binding: _b });
       if (!sent || !sent.ok) return jsonResp(res, 503, { error: 'code_not_sent', message: 'We could not send the confirmation code just now. Reload the page to try again.' });
       const masked = String(set.email).replace(/^(.)(.*)(@.*)$/, (m, a, b2, c) => a + '*'.repeat(Math.min(6, Math.max(1, b2.length))) + c);
-      return jsonResp(res, 200, { ok: true, brand_name: set.brand_name || 'this brand', email_hint: masked, booker_name: set.booker_name || null, permissions: BOOKER_PERMISSIONS_TEXT, terms_version: DEMOHUB_TOS_VERSION, terms_url: '/terms' });
+      return jsonResp(res, 200, { ok: true, brand_name: set.brand_name || 'this brand', email_hint: masked, booker_name: set.booker_name || null, permissions: set.role === 'manager' ? FULL_ACCESS_PERMISSIONS_TEXT : BOOKER_PERMISSIONS_TEXT, level: set.role === 'manager' ? 'full' : 'booking', level_label: set.role === 'manager' ? 'Full access' : 'Booking only', terms_version: DEMOHUB_TOS_VERSION, terms_url: '/terms' });
     }
 
     // Public: explicit acceptance. The code proves the address; booker_accept (0097) validates the invitation, marks it
@@ -1936,6 +2025,197 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true, brand_id: out.brand_id });
     }
 
+    // ===== One person, many brands (0121) =====
+    const requestHash = (token) => hashCode('brand_access_request', 'brand_access_request', String(token || ''));
+    const multiOff = () => jsonResp(res, 404, { error: 'multi_brand_disabled', message: 'This is not switched on yet.' });
+
+    // The signed-in person's brands and pending invitations. Read by the session's email only.
+    if (action === 'brand-list') {
+      const ctxM = await verifyIdentity(getBrandSessionFromReq(req, body) || '');
+      if (!ctxM) return jsonResp(res, 401, { error: 'Not authenticated' });
+      if (!multiOn()) return jsonResp(res, 200, { ok: true, multi_brand: false, active_brand_id: ctxM.brandId, brands: [], invites: [] });
+      const lr = await sb('rpc/brand_access_list', { method: 'POST', body: JSON.stringify({ p_email: ctxM.email }) });
+      if (!lr.ok) return jsonResp(res, 503, { error: 'brand_list_unavailable' });
+      const lj = await lr.json();
+      return jsonResp(res, 200, { ok: true, multi_brand: true, active_brand_id: ctxM.brandId, email: ctxM.email, brands: (lj && lj.brands) || [], invites: (lj && lj.invites) || [],
+        terms_version: DEMOHUB_TOS_VERSION, terms_url: '/terms' });
+    }
+
+    // Change the active brand. The database checks that the session's own email owns the target or holds accepted
+    // access to it, writes a NEW session and deletes the old one in one transaction; the cookie is replaced here.
+    if (action === 'brand-switch') {
+      if (!multiOn()) return multiOff();
+      const oldToken = getBrandSessionFromReq(req, body) || '';
+      const ctxM = await verifyIdentity(oldToken);
+      if (!ctxM) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const target = String(body.brand_id || '');
+      if (!/^[0-9a-f-]{36}$/i.test(target)) return jsonResp(res, 400, { error: 'brand_id required' });
+      const rl = await checkRateLimitByKey('brand-switch:' + ctxM.email.slice(0, 64), 240);
+      if (!rl.allowed) return jsonResp(res, rl.error === 'rate_limit_unavailable' ? 503 : 429, { error: rl.error || 'too_many_requests' });
+      const newToken = randomToken(32);
+      const sr = await sb('rpc/brand_session_switch', { method: 'POST', body: JSON.stringify({ p_session_token: oldToken, p_brand_id: target, p_new_session_token: newToken, p_session_days: 30 }) });
+      if (!sr.ok) return jsonResp(res, 503, { error: 'switch_unavailable' });
+      const out = await sr.json();
+      if (out.outcome === 'no_session') return jsonResp(res, 401, { error: 'Not authenticated' });
+      if (out.outcome !== 'ok') return jsonResp(res, 403, { error: 'brand_not_allowed', message: 'You do not have access to that brand.' });
+      _ctxCache.delete(oldToken);
+      setBrandSessionCookie(res, newToken);
+      return jsonResp(res, 200, { ok: true, brand_id: out.brand_id, company_name: out.company_name, access: out.role === 'owner' ? 'owner' : out.role === 'manager' ? 'full' : 'booking', changed: !!out.changed });
+    }
+
+    // Accept an invitation while signed in as the invited address. The session proves the address, so no second code.
+    if (action === 'access-accept') {
+      if (!multiOn()) return multiOff();
+      const ctxM = await verifyIdentity(getBrandSessionFromReq(req, body) || '');
+      if (!ctxM) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const memberId = String(body.member_id || '');
+      if (!/^[0-9a-f-]{36}$/i.test(memberId)) return jsonResp(res, 400, { error: 'member_id required' });
+      if (body.terms_accepted !== true) return jsonResp(res, 400, { error: 'terms_required', message: 'Tick the box to accept Demohub\'s Terms of Service.' });
+      if (String(body.terms_version || '') !== DEMOHUB_TOS_VERSION) return jsonResp(res, 409, { error: 'terms_version_mismatch', required_version: DEMOHUB_TOS_VERSION, message: 'Demohub\'s Terms of Service changed while this page was open. Reload the page to review the current terms.' });
+      const ar = await sb('rpc/brand_access_accept_signed_in', { method: 'POST', body: JSON.stringify({ p_member_id: memberId, p_email: ctxM.email, p_terms_version: DEMOHUB_TOS_VERSION, p_terms_digest: DEMOHUB_TOS_DIGEST }) });
+      if (!ar.ok) return jsonResp(res, 503, { error: 'accept_unavailable' });
+      const out = await ar.json();
+      if (out.outcome !== 'ok' && out.outcome !== 'already_accepted') return jsonResp(res, 410, { error: 'invite_not_valid', message: 'This invitation is not valid any more. Ask the brand to send a new one.' });
+      return jsonResp(res, 200, { ok: true, brand_id: out.brand_id });
+    }
+
+    // Decline a pending invitation, or leave a brand. Leaving the brand that is active right now ends this session.
+    if (action === 'access-leave') {
+      if (!multiOn()) return multiOff();
+      const ctxM = await verifyIdentity(getBrandSessionFromReq(req, body) || '');
+      if (!ctxM) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const memberId = String(body.member_id || '');
+      if (!/^[0-9a-f-]{36}$/i.test(memberId)) return jsonResp(res, 400, { error: 'member_id required' });
+      const lr = await sb('rpc/brand_access_leave', { method: 'POST', body: JSON.stringify({ p_member_id: memberId, p_email: ctxM.email }) });
+      if (!lr.ok) return jsonResp(res, 503, { error: 'leave_unavailable' });
+      const out = await lr.json();
+      if (out.outcome !== 'ok') return jsonResp(res, 404, { error: 'not_found' });
+      const signedOut = String(out.brand_id) === String(ctxM.brandId);
+      if (signedOut) clearBrandSessionCookie(res);
+      return jsonResp(res, 200, { ok: true, signed_out: signedOut });
+    }
+
+    // Ask a brand's owner for access. The rep names the owner's sign-in email; the reply never says whether that
+    // email has an account, so this cannot be used to look brands up. The owner gets one email with one button.
+    if (action === 'access-request') {
+      if (!multiOn()) return multiOff();
+      const ctxM = await verifyIdentity(getBrandSessionFromReq(req, body) || '');
+      if (!ctxM) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const ownerEmail = String(body.owner_email || '').trim().toLowerCase();
+      if (!ownerEmail || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ownerEmail)) return jsonResp(res, 400, { error: 'owner_email_required', message: 'Enter the email the brand signs in to Demohub with.' });
+      if (ownerEmail === ctxM.email) return jsonResp(res, 400, { error: 'own_brand', message: 'That is your own sign-in email. You already have your own brand.' });
+      if (body.terms_accepted !== true) return jsonResp(res, 400, { error: 'terms_required', message: 'Tick the box to accept Demohub\'s Terms of Service.' });
+      const rlMe = await checkRateLimitByKey('access-request:' + ctxM.email.slice(0, 64), 15);
+      const rlIp = await checkRateLimit(req, 'access-request-ip', 40);
+      if (!rlMe.allowed || !rlIp.allowed) return jsonResp(res, 429, { error: 'too_many_requests', message: 'Too many requests in the last hour. Try again later.' });
+      const GENERIC = { ok: true, message: 'If that email is the owner sign-in of a Demohub brand, we have emailed them your request. You will get an email when they answer.' };
+      const token = randomToken(32);
+      const role = roleFromLevel(body.access);
+      const cr = await sb('rpc/brand_access_request_create', { method: 'POST', body: JSON.stringify({ p_requester_email: ctxM.email, p_requester_name: ctxM.name || null, p_note: String(body.note || '').slice(0, 300),
+        p_owner_email: ownerEmail, p_role: role, p_token_hash: requestHash(token), p_ttl_hours: 336, p_terms_version: DEMOHUB_TOS_VERSION, p_terms_digest: DEMOHUB_TOS_DIGEST }) });
+      if (!cr.ok) return jsonResp(res, 503, { error: 'request_unavailable' });
+      const out = await cr.json();
+      // These two are about the requester's OWN standing with that brand, so saying them reveals nothing new.
+      if (out.outcome === 'already_has_access') return jsonResp(res, 409, { error: 'already_has_access', message: 'You already have access to that brand. Pick it from your brand list.' });
+      if (out.outcome === 'invite_pending') return jsonResp(res, 409, { error: 'invite_pending', message: 'That brand already invited you. Accept the invitation from your brand list.' });
+      if (out.outcome !== 'ok') return jsonResp(res, 200, GENERIC);
+      let delivery = 'not_configured';
+      if (_b.resendApiKey) {
+        const link = siteLink(_b, `/brand/approve?t=${encodeURIComponent(token)}`);
+        const who = ctxM.name ? `${ctxM.name} (${ctxM.email})` : ctxM.email;
+        try {
+          const sent = await sendMailQuietly({ from: FROM_EMAIL, to: out.owner_email, replyTo: REPLY_TO,
+            subject: `${ctxM.name || ctxM.email} asks for access to ${out.brand_name} on Demohub`,
+            html: actionEmail({ eyebrow: 'Access request', heading: `${ctxM.name || ctxM.email} asks to work for ${out.brand_name}.`,
+              paragraphs: [`${who} asked for ${role === 'manager' ? 'full access' : 'booking access'} to your brand account on Demohub, so they can book in-store demos in your brand's name.`,
+                String(body.note || '').trim() ? `Their note: "${String(body.note).trim().slice(0, 300)}"` : '',
+                'Open the request to approve or decline it. You choose the level when you approve: Booking only (book demos and pick your saved items) or Full access (everything you can do, except changing who has access).'],
+              button: { label: 'Review the request', url: link },
+              note: 'Nobody gets access unless you approve. If you do not know this person, decline or ignore this email. The link works for 14 days and can be used once.',
+              reason: 'You are receiving this because this address is the owner sign-in of a brand account on Demohub.' }) }, { binding: _b });
+          delivery = sent && sent.ok ? 'sent' : 'failed';
+        } catch (_) { delivery = 'failed'; }
+      }
+      try { await sb(`brand_access_requests?id=eq.${encodeURIComponent(out.request_id)}`, { method: 'PATCH', body: JSON.stringify({ delivery_status: delivery }) }); } catch (_) {}
+      return jsonResp(res, 200, GENERIC);
+    }
+
+    // The two notices to the rep after the owner answers.
+    async function notifyRequester(out) {
+      if (!_b.resendApiKey || !out || !out.requester_email) return;
+      const approved = out.decision === 'approved';
+      try {
+        await sendMailQuietly({ from: FROM_EMAIL, to: out.requester_email, replyTo: REPLY_TO,
+          subject: approved ? `You can now book for ${out.brand_name} on Demohub` : `${out.brand_name} did not approve your access request`,
+          html: actionEmail({ eyebrow: approved ? levelLabel(out.role) : 'Access request', heading: approved ? `${out.brand_name} approved your request.` : `${out.brand_name} did not approve your request.`,
+            paragraphs: approved ? [`${out.brand_name} is now in your brand list. Sign in with this email, pick the brand, and every demo you book is made in that brand's name, with its items and its insurance.`, permissionsFor(out.role)]
+              : ['Nothing changed on your account. If you think this is a mistake, talk to the brand and ask them to add you from their Account page.'],
+            button: approved ? { label: 'Open Demohub', url: siteLink(_b, '/brand/dashboard') } : null,
+            note: '', reason: 'You are receiving this because you asked a brand for access on Demohub.' }) }, { binding: _b });
+      } catch (_) { /* the access itself is already decided; the notice is best effort */ }
+    }
+    const decideReply = (out) => {
+      if (out.outcome === 'ok') return [200, { ok: true, decision: out.decision, level: out.role ? levelOf(out.role) : null, level_label: out.role ? levelLabel(out.role) : null, brand_name: out.brand_name, requester_email: out.requester_email }];
+      if (out.outcome === 'already_decided') return [409, { error: 'already_decided', status: out.status, message: 'This request was already answered.' }];
+      if (out.outcome === 'expired') return [410, { error: 'request_expired', message: 'This request has expired. Ask the person to send it again.' }];
+      if (out.outcome === 'too_many_people') return [409, { error: 'too_many_people', message: 'This brand already has the most people it can give access to. Remove someone first.' }];
+      return [410, { error: 'request_not_valid', message: 'This link is not valid any more.' }];
+    };
+
+    // Public, token-bound: what the owner sees after clicking the email. Reads only; opening the page decides nothing,
+    // so a mail scanner that follows the link cannot approve anything.
+    if (action === 'access-request-view') {
+      if (!multiOn()) return multiOff();
+      const token = String(body.token || '').trim();
+      if (!token || token.length < 16 || token.length > 128) return jsonResp(res, 400, { error: 'request_not_valid' });
+      const rlIp = await checkRateLimit(req, 'access-request-view-ip', 120);
+      if (!rlIp.allowed) return jsonResp(res, rlIp.error === 'rate_limit_unavailable' ? 503 : 429, { error: 'too_many_requests' });
+      const vr = await sb('rpc/brand_access_request_view', { method: 'POST', body: JSON.stringify({ p_token_hash: requestHash(token) }) });
+      if (!vr.ok) return jsonResp(res, 503, { error: 'request_unavailable' });
+      const v = await vr.json();
+      if (!v || v.outcome !== 'ok') return jsonResp(res, 410, { error: 'request_not_valid', message: 'This link is not valid any more.' });
+      return jsonResp(res, 200, { ok: true, state: v.state, brand_name: v.brand_name, requester_email: v.requester_email, requester_name: v.requester_name || null, note: v.requester_note || null,
+        requested_level: levelOf(v.requested_role), decided_level: v.decided_role ? levelOf(v.decided_role) : null, asked_at: v.created_at,
+        levels: [{ level: 'booking', label: 'Booking only', permissions: BOOKER_PERMISSIONS_TEXT }, { level: 'full', label: 'Full access', permissions: FULL_ACCESS_PERMISSIONS_TEXT }] });
+    }
+
+    // Public, token-bound: the owner's answer from the email. POST only. The token is bound to the request and to the
+    // owner email it was sent to, works once, and expires; the database checks all of that under the brand row lock.
+    if (action === 'access-request-decide') {
+      if (!multiOn()) return multiOff();
+      const token = String(body.token || '').trim();
+      const decision = String(body.decision || '');
+      if (!token || token.length < 16 || token.length > 128 || !['approve', 'decline'].includes(decision)) return jsonResp(res, 400, { error: 'request_not_valid' });
+      const h = requestHash(token);
+      const rlIp = await checkRateLimit(req, 'access-request-decide-ip', 60);
+      const rlTok = await checkRateLimitByKey('access-request-decide:' + h.slice(0, 32), 12);
+      if (!rlIp.allowed || !rlTok.allowed) return jsonResp(res, 429, { error: 'too_many_requests' });
+      const dr = await sb('rpc/brand_access_request_decide', { method: 'POST', body: JSON.stringify({ p_token_hash: h, p_request_id: null, p_brand_id: null, p_decision: decision,
+        p_role: ['full', 'booking'].includes(String(body.access || '')) ? roleFromLevel(body.access) : null, p_by_email: null }) });
+      if (!dr.ok) return jsonResp(res, 503, { error: 'request_unavailable' });
+      const out = await dr.json();
+      if (out.outcome === 'ok') await notifyRequester(out);
+      const [st, bodyOut] = decideReply(out);
+      return jsonResp(res, st, bodyOut);
+    }
+
+    // Owner, signed in: the same answer from the Account page.
+    if (action === 'access-request-answer') {
+      if (!multiOn()) return multiOff();
+      const ctxB = await verifyIdentity(getBrandSessionFromReq(req, body) || '');
+      if (!ctxB) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const requestId = String(body.request_id || '');
+      const decision = String(body.decision || '');
+      if (!/^[0-9a-f-]{36}$/i.test(requestId) || !['approve', 'decline'].includes(decision)) return jsonResp(res, 400, { error: 'request_id and decision required' });
+      const dr = await sb('rpc/brand_access_request_decide', { method: 'POST', body: JSON.stringify({ p_token_hash: null, p_request_id: requestId, p_brand_id: ctxB.brandId, p_decision: decision,
+        p_role: ['full', 'booking'].includes(String(body.access || '')) ? roleFromLevel(body.access) : null, p_by_email: ctxB.email }) });
+      if (!dr.ok) return jsonResp(res, 503, { error: 'request_unavailable' });
+      const out = await dr.json();
+      if (out.outcome === 'ok') await notifyRequester(out);
+      const [st, bodyOut] = decideReply(out);
+      return jsonResp(res, st, bodyOut);
+    }
+
     if (action === 'logout') {
       const sessionToken = getBrandSessionFromReq(req, body);
       if (sessionToken) {
@@ -1954,7 +2234,7 @@ export default async function handler(req, res) {
       const brandId = ctxL ? ctxL.brandId : null;
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       // 0097 (Codex BK-4): "everywhere" means this identity's devices. A booker never ends the owner's sessions.
-      if (ctxL.role === ROLES.BOOKER) await sb(`brand_account_sessions?brand_id=eq.${brandId}&email=eq.${encodeURIComponent(ctxL.email)}`, { method: 'DELETE' });
+      if (ctxL.role !== ROLES.OWNER) await sb(`brand_account_sessions?brand_id=eq.${brandId}&email=eq.${encodeURIComponent(ctxL.email)}`, { method: 'DELETE' });   // 0121: Full access too
       else await sb(`brand_account_sessions?brand_id=eq.${brandId}`, { method: 'DELETE' });
       // The rows this cookie names are gone, so leaving it set makes the browser keep presenting a
       // secret that can never validate again. Clear it here too.

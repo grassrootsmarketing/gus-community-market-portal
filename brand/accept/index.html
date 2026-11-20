@@ -36,8 +36,8 @@
     <p class="muted">Nothing has been changed on any account.</p>
   </div>
   <div id="form" style="display:none;">
-    <h1>Book demos for <span id="brandName">this brand</span></h1>
-    <p><span id="brandName2">This brand</span> designated <strong id="who">you</strong> as its booker on Demohub. Before anything is set up, read what that means and confirm you hold this address.</p>
+    <h1 id="formTitle">Book demos for <span id="brandName">this brand</span></h1>
+    <p><span id="brandName2">This brand</span><span id="designated"> designated </span><strong id="who">you</strong><span id="asBooker"> as its booker on Demohub. Before anything is set up, read what that means and confirm you hold this address.</span></p>
     <div class="perm" id="perm"></div>
     <p>We sent a 6-digit code to <strong id="emailHint"></strong>. Enter it below. The code expires in 30 minutes.</p>
     <label for="code">Your code</label>
@@ -48,11 +48,11 @@
     </label>
     <button class="btn" id="acceptBtn" disabled>Accept and sign in</button>
     <div class="err" id="err"></div>
-    <p class="muted" style="margin-top:16px;">Accepting creates your own sign-in for this brand's booking. It does not give you access to the brand's payments, receipts, products, profile or insurance documents. The brand can revoke this at any time. If you were not expecting this, close the page and nothing happens.</p>
+    <p class="muted" style="margin-top:16px;" id="footnote">Accepting creates your own sign-in for this brand's booking. It does not give you access to the brand's payments, receipts, products, profile or insurance documents. The brand can revoke this at any time. If you were not expecting this, close the page and nothing happens.</p>
   </div>
   <div id="done" style="display:none;">
     <h1>You are set up</h1>
-    <p>You can now book demos for <span id="brandName3">this brand</span>. Taking you to your portal.</p>
+    <p id="doneMsg">You can now book demos for <span id="brandName3">this brand</span>. Taking you to your portal.</p>
   </div>
 </div>
 <script>
@@ -75,6 +75,16 @@
     $('terms').addEventListener('change', () => { $('acceptBtn').disabled = !$('terms').checked; });
     $('who').textContent = b.booker_name ? b.booker_name : 'you';
     $('perm').textContent = b.permissions || '';
+    // 0121: the invitation may be for Full access. Say so in the heading, the sentence and the footnote.
+    if (b.level === 'full') {
+      $('formTitle').firstChild.textContent = 'Manage ';
+      $('designated').textContent = ' gave ';
+      $('asBooker').textContent = ' full access to its brand account on Demohub. Before anything is set up, read what that means and confirm you hold this address.';
+      $('footnote').textContent = 'Accepting adds this brand to your own sign-in. If you already use Demohub for another brand, you keep that one and switch between them with one click. The brand can remove this access at any time. If you were not expecting this, close the page and nothing happens.';
+      $('doneMsg').firstChild.textContent = 'You can now manage ';
+    } else if (b.level === 'booking') {
+      $('footnote').textContent += ' If you already use Demohub for another brand, you keep that one and switch between them with one click.';
+    }
     $('emailHint').textContent = b.email_hint || 'your email';
     show('form');
     $('code').focus();

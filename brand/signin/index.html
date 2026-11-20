@@ -144,6 +144,12 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
       </form>
     </div>
   </div>
+  <!-- 0121: one person, many brands. Shown after the code when this email has more than one brand or an invitation. -->
+  <div class="card" id="pickerCard" style="display:none;">
+    <h2 style="font-family:'Fraunces',Georgia,serif;font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1;font-weight:620;font-size:1.5rem;line-height:1.2;color:#0f2c17;margin:0 0 6px;">Which brand are you working on?</h2>
+    <p style="font-size:0.95rem;color:#3a3a36;line-height:1.5;margin:0 0 16px;">Every demo you book is made in the name of the brand you pick, with its items and its insurance. You can switch at any time from the top of the page.</p>
+    <div id="pickerBody"></div>
+  </div>
   <div class="card success" id="successCard">
     <div class="check">&#9993;</div>
     <h2>Check your email</h2>
@@ -162,6 +168,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <p style="margin-top:10px;"><a href="#" id="brandResendLink" style="color:var(--forest-700); text-decoration:underline; cursor:pointer; font-size:0.88rem;">Didn't get it? Resend code</a></p>
   </div>
 </main>
+<script src="/brand/brands.js"></script>
 <script>
 // Verify the 6-digit code without leaving this tab. This is the primary path on mobile,
 // where tapping the emailed link opens the mail app's in-app browser and the session
@@ -200,6 +207,17 @@ async function _brandVerifyCode() {
           credentials: 'same-origin', body: JSON.stringify({ default_categories: _cat }),
         });
       } catch (_) { /* non-blocking, they can set it later in Profile */ }
+    }
+    // 0121: several brands behind this email, or an invitation waiting: pick first. The session is already issued for
+    // the person's own brand (or the one they used last), so closing this page leaves them safely signed in there.
+    if (j.choose && window.DHBrands) {
+      for (const id of ['formCard', 'successCard']) { const c = document.getElementById(id); if (c) c.style.display = 'none'; }
+      const t = document.getElementById('title'); if (t) t.textContent = 'You are signed in';
+      const l = document.querySelector('.lede'); if (l) l.style.display = 'none';
+      document.getElementById('pickerCard').style.display = 'block';
+      const go = () => { window.location.href = '/brand/dashboard'; };
+      window.DHBrands.renderPicker(document.getElementById('pickerBody'), { activeId: j.brand_id, markCurrent: false, onSwitched: go, onSame: go, onUnavailable: go });
+      return;
     }
     window.location.href = '/brand/dashboard';
   } catch (e) {

@@ -4,7 +4,7 @@
 
 import { getBinding } from './_env.js';
 import { getSessionToken } from './_cookies.js';
-import { resolveBrandIdentity } from './_brand-identity.js';
+import { resolveBrandIdentity, brandHeaderMismatch, BRAND_CHANGED_BODY } from './_brand-identity.js';
 
 async function rest(path) {
   const b = await getBinding();
@@ -22,7 +22,10 @@ export async function requireBrandSession(req, _body) {
   // every request and adds { memberId, role }. The { ok, brandId, email } shape every caller reads is unchanged.
   const token = getSessionToken(req, 'brand');
   if (!token) return { ok: false, status: 401, error: 'sign in to book' };
-  return resolveBrandIdentity(token);
+  const ctx = await resolveBrandIdentity(token);
+  // 0121: a page still showing another brand (the person switched in a different tab) is refused, never booked.
+  if (brandHeaderMismatch(req, ctx)) return { ok: false, status: 409, error: BRAND_CHANGED_BODY.error };
+  return ctx;
 }
 
 // Agreement status for the AUTHENTICATED brand only. Returns booleans + reason, never the

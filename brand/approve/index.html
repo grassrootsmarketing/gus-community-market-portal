@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Access request · Demohub</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,500..700,100,1&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@800&display=swap" rel="stylesheet">
+<style>
+  :root { --forest-900:#0f2c17; --forest-700:#2a5b32; --ink-700:#3a3a36; --sand-100:#fbf7f0; --clay-700:#a14e2a; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:'Hanken Grotesk', -apple-system, sans-serif; background:var(--sand-100); color:#1c1c1a; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px 16px; }
+  .card { background:white; border-radius:18px; border:1px solid rgba(15,44,23,0.1); box-shadow:0 20px 60px rgba(15,44,23,0.08); max-width:540px; width:100%; padding:30px 28px; }
+  h1 { font-family:'Fraunces',Georgia,serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1; font-weight:620; font-size:1.65rem; line-height:1.2; margin:0 0 10px; color:var(--forest-900); }
+  p { line-height:1.55; margin:0 0 14px; color:var(--ink-700); font-size:0.98rem; }
+  .who { background:var(--sand-100); border-radius:12px; padding:14px 16px; margin:0 0 18px; }
+  .who strong { color:var(--forest-900); font-size:1.05rem; }
+  .who div { font-size:0.92rem; color:var(--ink-700); line-height:1.5; }
+  .opt { display:flex; gap:12px; align-items:flex-start; padding:13px 14px; border:1.5px solid rgba(15,44,23,0.22); border-radius:14px; cursor:pointer; margin:0 0 10px; background:#fff; }
+  .opt:has(input:checked) { border-color:var(--forest-900); background:#f1f6ee; }
+  .opt input { margin-top:4px; flex:0 0 auto; width:18px; height:18px; accent-color:#0f2c17; }
+  .opt strong { color:var(--forest-900); }
+  .opt span span { display:block; font-size:0.88rem; color:var(--ink-700); line-height:1.45; margin-top:2px; }
+  .btn { font: inherit; font-weight:700; background:var(--forest-900); color:white; border:1.5px solid var(--forest-900); border-radius:999px; padding:13px 24px; cursor:pointer; width:100%; margin-top:8px; font-size:1rem; }
+  .btn.ghost { background:#fff; color:var(--clay-700); border-color:rgba(161,78,42,0.55); }
+  .btn[disabled] { opacity:0.6; cursor:default; }
+  .small { font-size:0.86rem; color:var(--ink-700); }
+  .err { color:var(--clay-700); font-size:0.92rem; font-weight:600; margin-top:12px; display:none; }
+  .brand { display:flex; align-items:center; gap:10px; margin-bottom:22px; font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; color:var(--forest-900); letter-spacing:-0.04em; font-size:1.2rem; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand"><img src="/favicon.svg" alt="" width="30" height="30" style="width:30px;height:30px;display:block;">demohub</div>
+  <div id="loading"><h1>Opening the request</h1><p class="small">One moment.</p></div>
+  <div id="invalid" style="display:none;">
+    <h1>This link is not valid any more</h1>
+    <p id="invalidMsg">It may have expired, been replaced by a newer request, or already been answered.</p>
+    <p class="small">Nothing has been changed on your brand account. You can also answer requests from the Account page of your brand portal.</p>
+  </div>
+  <div id="form" style="display:none;">
+    <h1><span id="who1">Someone</span> asks for access to <span id="brand1">your brand</span></h1>
+    <div class="who"><strong id="whoName"></strong><div id="whoEmail"></div><div id="whoNote" style="display:none; margin-top:6px;"></div></div>
+    <p>If you approve, this person books in-store demos in <strong id="brand2">your brand</strong>'s name with their own sign-in. You never share your email or a password, and you can remove them at any time from your Account page. Choose what they may do:</p>
+    <label class="opt"><input type="radio" name="level" value="booking"><span><strong>Booking only</strong><span id="permBooking"></span></span></label>
+    <label class="opt"><input type="radio" name="level" value="full"><span><strong>Full access</strong><span id="permFull"></span></span></label>
+    <button class="btn" id="approveBtn">Approve</button>
+    <button class="btn ghost" id="declineBtn">Decline</button>
+    <div class="err" id="err" role="alert"></div>
+    <p class="small" style="margin-top:16px;">Do not know this person? Decline, or just close this page. Nobody gets access unless you approve.</p>
+  </div>
+  <div id="done" style="display:none;">
+    <h1 id="doneTitle">Done</h1>
+    <p id="doneMsg"></p>
+    <p class="small">You can see and change who has access at any time: sign in to your brand portal and open Account.</p>
+  </div>
+</div>
+<script>
+// 0121: the brand owner answers an access request from the email. Opening this page reads the request and decides
+// nothing, so a mail scanner that follows the link cannot approve anything; only the buttons below do.
+(function () {
+  const token = new URLSearchParams(location.search).get('t') || '';
+  const $ = (id) => document.getElementById(id);
+  const show = (id) => { for (const x of ['loading', 'invalid', 'form', 'done']) $(x).style.display = x === id ? '' : 'none'; };
+  const post = (body) => fetch('/api/brand-account', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'omit', body: JSON.stringify(body) }).then(async (r) => ({ ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) }));
+  const invalid = (m) => { if (m) $('invalidMsg').textContent = m; show('invalid'); };
+  if (!token) { invalid(); return; }
+  try { history.replaceState(null, '', location.pathname); } catch (_) { /* the token stays out of the address bar and history */ }
+  const done = (title, msg) => { $('doneTitle').textContent = title; $('doneMsg').textContent = msg; show('done'); };
+  post({ action: 'access-request-view', token }).then((r) => {
+    if (!r.ok) return invalid(r.body && r.body.message);
+    const b = r.body || {};
+    const name = b.requester_name || b.requester_email;
+    if (b.state === 'approved') return done('Already approved', name + ' already has ' + (b.decided_level === 'full' ? 'full access' : 'booking access') + ' to ' + b.brand_name + '.');
+    if (b.state === 'declined') return done('Already declined', 'This request from ' + name + ' was declined. They do not have access to ' + b.brand_name + '.');
+    if (b.state !== 'pending') return invalid(b.state === 'expired' ? 'This request has expired. Ask the person to send it again.' : '');
+    $('who1').textContent = name; $('brand1').textContent = b.brand_name; $('brand2').textContent = b.brand_name;
+    $('whoName').textContent = name; $('whoEmail').textContent = b.requester_email;
+    if (b.note) { $('whoNote').textContent = 'Their note: ' + b.note; $('whoNote').style.display = ''; }
+    for (const l of (b.levels || [])) { const el = $(l.level === 'full' ? 'permFull' : 'permBooking'); if (el) el.textContent = l.permissions; }
+    const want = b.requested_level === 'full' ? 'full' : 'booking';
+    document.querySelector('input[name="level"][value="' + want + '"]').checked = true;
+    const label = () => { const v = document.querySelector('input[name="level"]:checked').value; $('approveBtn').textContent = v === 'full' ? 'Approve full access' : 'Approve booking only'; };
+    document.querySelectorAll('input[name="level"]').forEach((i) => i.addEventListener('change', label)); label();
+    show('form');
+    const answer = async (decision) => {
+      const err = $('err'); err.style.display = 'none';
+      $('approveBtn').disabled = true; $('declineBtn').disabled = true;
+      const access = document.querySelector('input[name="level"]:checked').value;
+      const rr = await post({ action: 'access-request-decide', token, decision, access }).catch(() => ({ ok: false, body: {} }));
+      if (!rr.ok) {
+        if (rr.status === 409 || rr.status === 410) return invalid(rr.body && rr.body.message);
+        $('approveBtn').disabled = false; $('declineBtn').disabled = false;
+        err.textContent = (rr.body && rr.body.message) || 'Something went wrong. Try again.'; err.style.display = 'block'; return;
+      }
+      if (rr.body.decision === 'approved') done('Approved', name + ' now has ' + (rr.body.level === 'full' ? 'full access' : 'booking access') + ' to ' + b.brand_name + '. We emailed them.');
+      else done('Declined', name + ' does not have access to ' + b.brand_name + '. We let them know.');
+    };
+    $('approveBtn').addEventListener('click', () => answer('approve'));
+    $('declineBtn').addEventListener('click', () => answer('decline'));
+  }).catch(() => invalid());
+})();
+</script>
+</body>
+</html>

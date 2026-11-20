@@ -12,6 +12,7 @@ import { setSessionCookie as setRoleCookie } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly } from './_mail.js';
 import { codeEmail } from './_code-email.js';
+import { FLAGS } from './_flags.js';
 let _b = null;
 
 function rest(path, opts = {}) {
@@ -246,7 +247,20 @@ export default async function handler(req, res) {
     await applyChallengeCategory(email, out.brand_id);
     // Codex finding B: the session goes in the HttpOnly cookie ONLY. It is not returned in the
     // body, so page JavaScript cannot read it and it cannot land in localStorage or a log.
-    return res.status(200).json({ ok: true, brand_id: out.brand_id, created: !!out.created });
+    // 0121: one person, many brands. The session above is already issued for the person's default brand (their OWN
+    // brand when they have one, which keeps 0064's rule that nobody is diverted away from their own account; otherwise
+    // the brand they used last). When the email has more than one brand, or an invitation waiting, the page shows a
+    // picker. Picking is a session action (brand-account brand-switch), so no separate chooser secret exists to leak.
+    let pick = {};
+    if (FLAGS.multiBrandAccess) {
+      try {
+        const lr = await rpc('brand_access_list', { p_email: email });
+        const brands = (lr.ok && lr.json && Array.isArray(lr.json.brands)) ? lr.json.brands : [];
+        const invites = (lr.ok && lr.json && Array.isArray(lr.json.invites)) ? lr.json.invites : [];
+        pick = { multi_brand: true, choose: brands.length > 1 || invites.length > 0, brands, invites };
+      } catch (_) { pick = {}; }
+    }
+    return res.status(200).json({ ok: true, brand_id: out.brand_id, created: !!out.created, ...pick });
   }
   return res.status(400).json({ error: 'unknown action' });
 }
