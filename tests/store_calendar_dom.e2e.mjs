@@ -2,7 +2,7 @@
 // with /api/store-calendar stubbed to the server's shapes. Proves the SHIPPED page, not the route:
 //   * the secret arrives in the URL fragment, is held in memory only (no web storage), is taken out of the address
 //     while printing and when the link is retired, and is sent only as a bearer header to /api/store-calendar;
-//   * the dashboard look (Plus Jakarta Sans, the .big-cal month grid, a legend colored by location): month view opens
+//   * the dashboard look (Hanken Grotesk, the .big-cal month grid, a legend colored by location): month view opens
 //     on the current month with today ringed, tiles show time and brand, a tap opens the detail (time range, brand,
 //     items, location, fallback note); names are escaped; the location filter narrows without a request; list view;
 //     prev/next month; phone width shows colored bars and a tap on the day lists its demos;
@@ -85,7 +85,7 @@ try {
   ok('the fragment is dropped from the address while printing and restored afterwards (so a printed header never carries the secret)', !duringPrint.includes('#') && page.url().includes('#k=' + TOKEN), duringPrint + ' -> ' + page.url());
   ok('store name and view-only subtitle in the header; title names the store', (await page.locator('#storeName').innerText()) === 'Calendar Fixture Market' && /All locations\. Confirmed demos\. View only\./.test(await page.locator('#storeSub').innerText()) && /Calendar Fixture Market calendar/.test(await page.title()));
   const font = await page.evaluate(() => ({ body: getComputedStyle(document.body).fontFamily, title: getComputedStyle(document.querySelector('.big-cal-title')).fontFamily, link: !!document.querySelector('link[href*="fonts.googleapis.com/css2?family=Plus+Jakarta+Sans"]') }));
-  ok('the dashboard look: Plus Jakarta Sans is requested and set on the body and the calendar title, inside a .big-cal-card with the "Demo Calendar" title', /Plus Jakarta Sans/.test(font.body) && /Plus Jakarta Sans/.test(font.title) && font.link && (await page.locator('.big-cal-card .big-cal-title').innerText()) === 'Demo Calendar', JSON.stringify(font));
+  ok('the dashboard look: Hanken Grotesk is requested and set on the body and the calendar title, inside a .big-cal-card with the "Demo Calendar" title', /Hanken Grotesk/.test(font.body) && /Hanken Grotesk/.test(font.title) && font.link && (await page.locator('.big-cal-card .big-cal-title').innerText()) === 'Demo Calendar', JSON.stringify(font));
   const grid = await page.evaluate(() => { const cells = [...document.querySelectorAll('#monthGrid .big-cal-cell')]; return { dows: document.querySelectorAll('#monthGrid .big-cal-dow').length, cells: cells.length, firstYmd: cells[0] && cells[0].dataset.ymd, today: document.querySelectorAll('.big-cal-cell.today').length, weekend: document.querySelectorAll('.big-cal-cell.weekend').length, cols: getComputedStyle(document.getElementById('monthGrid')).gridTemplateColumns.split(' ').length }; });
   ok('month view: seven weekday headers, a 7-column grid of 28 to 42 day cells starting on the Sunday of the 1st, exactly one today cell, weekend cells shaded', grid.dows === 7 && grid.cols === 7 && grid.cells % 7 === 0 && grid.cells >= 28 && grid.cells <= 42 && grid.firstYmd === gridFrom && grid.today === 1 && grid.weekend >= 6, JSON.stringify(grid));
   ok('the month label and the print title name the month', (await page.locator('#rangeLabel').innerText()) === monthLabel(today) && (await page.locator('#printTitle').textContent()) === 'Calendar Fixture Market: demos ' + monthLabel(today));
