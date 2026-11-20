@@ -40,7 +40,7 @@ const NOBRAND = { headers: {} };
 const page = async (cookie) => { if (!cookie) return {}; const s = one(await db(`brand_account_sessions?session_token=eq.${encodeURIComponent(cookie)}&select=brand_id`)); return s ? { 'x-dh-brand': s.brand_id } : {}; };
 const acct = async (body, cookie, extra = {}) => callRoute('brand-account.js', req({ body, cookies: cookie ? { dh_brand_session: cookie } : {}, headers: extra.headers ? extra.headers : await page(cookie), ...(({ headers, ...rest }) => rest)(extra) }));
 const on = () => { ENV.MULTI_BRAND_ACCESS_ENABLED = 'true'; delete ENV.BRAND_INVITE_ENABLED; };   // on: the one switch is enough
-const off = () => { delete ENV.MULTI_BRAND_ACCESS_ENABLED; ENV.BRAND_INVITE_ENABLED = 'true'; };
+const off = () => { delete ENV.MULTI_BRAND_ACCESS_ENABLED; delete ENV.BRAND_CONTEXT_REQUIRED; ENV.BRAND_INVITE_ENABLED = 'true'; };   // neither the feature nor the safety policy
 
 // ---------------------------------------------------------------------------
 // Fixtures: one store, four brands. helen owns High Ground (the agency rep's own account), liah owns Tofu,
@@ -338,6 +338,68 @@ try {
     on();
     const leave = await acct({ action: 'access-leave', member_id: riceMember }, riceCookie);
     ok('F6 a person can leave a brand; leaving the active brand signs that session out', leave.statusCode === 200 && leave.body.signed_out === true && (await acct({ action: 'data' }, riceCookie)).statusCode === 401 && one(await db(`brand_members?id=eq.${riceMember}&select=status`)).status === 'revoked');
+  }
+
+  console.log('\n:: G rollback: OFF, ON, switch A to B, OFF again (Codex handback review, R1) ::');
+  {
+    // G0. Before multi-brand was ever used: a person with ONE brand, neither switch set, a page with no brand stamp.
+    off();
+    const single = await acct({ action: 'profile-update', website: 'https://example.test/rice' }, rita.cookie, NOBRAND);
+    ok('G0 the one compatibility case that is kept: one brand, neither switch, no brand stamp, the save works as before this release', single.statusCode === 200, single.statusCode + ' ' + JSON.stringify(single.body));
+
+    // ON: liah gives helen Full access again; helen accepts and switches from her own brand (A) to Tofu (B).
+    on();
+    const g = await acct({ action: 'booker-designate', email: helen.email, name: 'Helen Rep', access: 'full' }, liah.cookie);
+    helenCookie = (await signIn(helen.email)).cookie('dh_brand_session');
+    await acct({ action: 'access-accept', member_id: g.body.booker.id, terms_accepted: true, terms_version: DEMOHUB_TOS_VERSION }, helenCookie);
+    const bCookie = (await acct({ action: 'brand-switch', brand_id: liah.id }, helenCookie)).cookie('dh_brand_session');
+    const whileOn = await book({ demo_date: dayP(33), product_skus: [item('tf-1', 'Miso Tofu')] }, bCookie, {});
+    ok('G1 while the feature is on, the old page (it shows A, the session is now on B) is refused, as before', !!bCookie && whileOn.statusCode === 409 && whileOn.body.error === 'brand_context_required', whileOn.statusCode + ' ' + JSON.stringify(whileOn.body));
+
+    // OFF again. The B session is kept, as designed. Nothing else is set: no policy switch either.
+    off();
+    const kept = await acct({ action: 'data' }, bCookie, NOBRAND);
+    ok('G2 after the feature is switched off the B session is still valid and still on B (a switch-off ends no session)', kept.statusCode === 200 && kept.body.profile.id === liah.id && kept.body.role === 'booker' && kept.body.multi_brand === undefined, kept.statusCode + ' ' + (kept.body.profile && kept.body.profile.id));
+    const effects = async () => JSON.stringify({ bookings: (await db(`bookings?retailer_id=eq.${retailerId}&select=id`)).body.length, agreements: (await db(`brand_retailer_agreements?retailer_id=eq.${retailerId}&select=id,superseded_at`)).body,
+      tofu: one(await db(`brands?id=eq.${liah.id}&select=products,company_name,website,default_coi_url`)), own: one(await db(`brands?id=eq.${helen.id}&select=products,company_name,website,default_coi_url`)), mail: spy.calls.resend.length, stripe: spy.calls.stripe.length });
+    const tries = async (headers) => [
+      await book({ demo_date: dayP(33), product_skus: [item('tf-1', 'Miso Tofu')] }, bCookie, headers),
+      await acct({ action: 'profile-update', company_name: 'Written After Rollback', website: 'https://example.test/x' }, bCookie, { headers }),
+      await sign(bCookie, 'Helen Rep', headers),
+      await callRoute('checkout.js', req({ body: { booking_ids: ['00000000-0000-4000-8000-000000000001'] }, cookies: { dh_brand_session: bCookie }, headers })),
+      await acct({ action: 'remove-coi' }, bCookie, { headers }),
+    ];
+    const summarize = (rs, want) => rs.every(r => r.statusCode === 409 && r.body && r.body.error === want) ? 'all ' + want : rs.map(r => r.statusCode + ':' + (r.body && r.body.error)).join(' ');
+    const e0 = await effects();
+    const none = summarize(await tries({}), 'brand_context_required');
+    const malformed = summarize(await tries({ 'x-dh-brand': 'aaaa' }), 'brand_context_required');
+    const validA = summarize(await tries({ 'x-dh-brand': helen.id }), 'brand_changed');
+    const e1 = await effects();
+    ok('G3 R1: with the feature OFF and NO policy switch, the old A page still cannot book, save, sign, pay or remove a file under the B session: no brand, a malformed brand and a valid A brand are all refused', none === 'all brand_context_required' && malformed === 'all brand_context_required' && validA === 'all brand_changed', JSON.stringify({ none, malformed, validA }));
+    ok('G4 and those fifteen refusals changed nothing: bookings, agreements, both brands\' profiles and files, mail and provider calls are identical', e0 === e1, e0 + ' vs ' + e1);
+    // "restart": every handler call in this harness loads a fresh copy of the route module with a fresh environment, so
+    // nothing above was held in memory. Said again here with the policy switch as the only thing set, and then unset.
+    ENV.BRAND_CONTEXT_REQUIRED = 'true';
+    const withPolicy = summarize(await tries({}), 'brand_context_required');
+    const singlePolicy = await acct({ action: 'profile-update', website: 'https://example.test/rice2' }, rita.cookie, NOBRAND);
+    const singleStamped = await acct({ action: 'profile-update', website: 'https://example.test/rice2' }, rita.cookie);
+    delete ENV.BRAND_CONTEXT_REQUIRED;
+    const again = summarize(await tries({}), 'brand_context_required');
+    ok('G5 the same after a fresh process each time, with the policy switch set and with it unset again (not an in-memory latch)', withPolicy === 'all brand_context_required' && again === 'all brand_context_required' && (await effects()) === e1, withPolicy + ' | ' + again);
+    ok('G6 with the policy switch set, a one-brand person\'s unstamped save is refused too and the stamped one works: the policy is for everyone', singlePolicy.statusCode === 409 && singlePolicy.body.error === 'brand_context_required' && singleStamped.statusCode === 200, singlePolicy.statusCode + ' ' + singleStamped.statusCode);
+
+    // A page loaded fresh while the feature is off: it shows B and says so.
+    const fresh = await book({ demo_date: dayP(34), product_skus: [item('tf-1', 'Miso Tofu')] }, bCookie);
+    const row = fresh.body && fresh.body.booking_id ? one(await db(`bookings?id=eq.${fresh.body.booking_id}&select=brand_id,brand_name,booked_by_email`)) : null;
+    const sw = await acct({ action: 'brand-switch', brand_id: helen.id }, bCookie);
+    const narrowed = await acct({ action: 'profile-update', company_name: 'Not Allowed' }, bCookie);
+    ok('G7 a freshly loaded feature-off page for B works with its matching brand: the booking is made for B', fresh.statusCode === 200 && row && row.brand_id === liah.id && row.brand_name === 'Tofu Fixture' && row.booked_by_email === helen.email, fresh.statusCode + ' ' + JSON.stringify(fresh.body));
+    ok('G8 and with the feature off, Full access is narrowed to Booking only and switching brand is unavailable', narrowed.statusCode === 403 && narrowed.body.error === 'role_not_allowed' && sw.statusCode === 404 && sw.body.error === 'multi_brand_disabled', narrowed.statusCode + ' ' + sw.statusCode);
+    // the other direction: session on the OWN brand, an old page that showed the other brand
+    const aCookie = (await signIn(helen.email)).cookie('dh_brand_session');
+    const ownOld = await acct({ action: 'profile-update', company_name: 'Written From The Tofu Page' }, aCookie, NOBRAND);
+    const ownOldB = await acct({ action: 'profile-update', company_name: 'Written From The Tofu Page' }, aCookie, { headers: { 'x-dh-brand': liah.id } });
+    ok('G9 the same holds the other way round (the session on the own brand, the old page showing the other one)', ownOld.statusCode === 409 && ownOld.body.error === 'brand_context_required' && ownOldB.statusCode === 409 && ownOldB.body.error === 'brand_changed' && one(await db(`brands?id=eq.${helen.id}&select=company_name`)).company_name === 'High Ground Fixture', ownOld.statusCode + ' ' + ownOldB.statusCode);
   }
 } catch (e) {
   ok('suite ran without an unexpected error', false, (e && e.stack) || String(e));

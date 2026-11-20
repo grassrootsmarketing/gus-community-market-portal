@@ -753,8 +753,10 @@ async function loadData() {
   // owner-only cards (who has access, the password). The header names the brand being worked on and switches in a click.
   window._brandAccess = (_data.active_brand && _data.active_brand.access) || (window._brandRole === 'booker' ? 'booking' : 'owner');
   window._multiBrand = _data.multi_brand === true;
+  // R1: the request guard does not depend on the feature. Every request from this page names the brand the page shows,
+  // so the server can refuse a page left open on another brand even after the feature has been switched off again.
+  if (window.DHBrands && profile.id) window.DHBrands.guard(profile.id, profile.company_name || '');
   if (window._multiBrand && window.DHBrands) {
-    window.DHBrands.guard(profile.id, profile.company_name || '');
     const hasSwitcher = window.DHBrands.mountSwitcher(document.getElementById('brandSwitcherSlot'), _data, { label: 'Working on' });
     // the switcher already names the brand; the small name block beside the avatar would crowd the tabs
     const navId = document.querySelector('.nav-account .nav-id'); if (navId) navId.style.display = hasSwitcher ? 'none' : '';

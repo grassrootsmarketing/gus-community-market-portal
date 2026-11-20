@@ -301,8 +301,9 @@
       if (!sameApi) return orig(input, init);
       var exempt = EXEMPT.indexOf(actionOf(url, init)) >= 0;
       // A missed or late notice from another tab is caught here, before the request is built.
-      if (!exempt && !state.blocked && !state.switching && sessionMovedElsewhere()) blockPage();
+      if (!exempt && state.pageBrand && !state.blocked && !state.switching && sessionMovedElsewhere()) blockPage();
       if (!exempt && (state.blocked || state.switching)) return Promise.resolve(refusedHere());
+      if (!state.pageBrand) return orig(input, init);   // signed out on this page: nothing to stamp
       init = Object.assign({}, init || {});
       var h = new Headers(init.headers || ((typeof Request !== 'undefined' && input instanceof Request) ? input.headers : undefined));
       h.set('X-DH-Brand', state.pageBrand); init.headers = h;   // always the brand this page shows, never anything newer
@@ -330,5 +331,8 @@
   }
 
   window.DHBrands = { renderPicker: renderPicker, open: open, close: close, mountSwitcher: mountSwitcher, forLine: forLine, switchTo: switchTo, guard: guard, labels: LABEL,
+    // Sign-out on a page that stays open (the booking page): the page shows no brand any more, so the next sign-in may
+    // name one. A blocked page stays blocked.
+    release: function () { if (!state.blocked && !state.switching) { state.pageBrand = null; state.pageName = ''; } },
     pageBrand: function () { return state.pageBrand; }, isBlocked: function () { return state.blocked || state.switching; } };
 })();

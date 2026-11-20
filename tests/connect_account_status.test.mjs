@@ -152,7 +152,7 @@ const { default: platformHook } = await import('../api/stripe-webhook.js');
 const { default: checkoutRoute } = await import('../api/checkout.js');
 const { default: stripeRoute } = await import('../api/stripe.js');
 const deliver = async (evt, { secret = CONNECT_SECRET, signature, raw } = {}) => { const body = raw != null ? raw : JSON.stringify(evt); const res = mockRes(); await connectHook(rawReq(body, signature !== undefined ? signature : sign(body, secret)), res); return res; };
-const checkout = async (bookingId) => { const res = mockRes(); await checkoutRoute({ method: 'POST', query: {}, headers: { 'sec-fetch-site': 'same-origin', cookie: 'dh_brand_session=' + BRAND_SESSION }, body: { booking_ids: [bookingId] } }, res); return res; };
+const checkout = async (bookingId) => { const res = mockRes(); await checkoutRoute({ method: 'POST', query: {}, headers: { 'sec-fetch-site': 'same-origin', cookie: 'dh_brand_session=' + BRAND_SESSION, 'x-dh-brand': BRAND }, body: { booking_ids: [bookingId] } }, res); return res; };
 const admin = async (action) => { const res = mockRes(); await stripeRoute({ method: 'POST', query: { action }, headers: { 'sec-fetch-site': 'same-origin', cookie: 'dh_retailer_session=' + ADMIN_SID }, body: {} }, res); return res; };
 const booking = (id, retailerId) => { const b = { id, brand_id: BRAND, retailer_id: retailerId, venue_id: 'v1', demo_date: '2026-12-01', demo_time: '11:00 AM', brand_name: 'Brand', contact_email: BRAND_EMAIL, status: 'pending_payment', fee_waived: false, booked_by_member_id: 'member1' }; world.bookings.push(b); return id; };
 const claims = () => log.rpc.filter(c => c.fn === 'checkout_claim_group');

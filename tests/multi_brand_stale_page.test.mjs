@@ -161,39 +161,65 @@ console.log(':: part 1: the page script ::');
   ok('S10b a page that never called guard (the sign-in page) is not blocked and not stamped', r2.status === 200 && u.blocked() === false && u.sent[u.sent.length - 1].brand === null);
 }
 
+{ // S11: sign-out on a page that stays open, then a sign-in as another brand
+  const t = tab(world());
+  t.c.DHBrands.guard(A, 'Brand A');
+  t.c.DHBrands.release();
+  const signedOut = await t.post('data');
+  t.c.DHBrands.guard(B, 'Brand B');
+  const r = await t.save();
+  ok('S11 after sign-out the page stamps nothing; the next sign-in names its own brand without a reload', t.reloads === 0 && t.sent.find(s => s.action === 'data').brand === null && signedOut.status === 200 && r.status === 200 && sentSaves(t)[0].brand === B);
+  const u = tab(world(), { listActive: B }); u.c.DHBrands.guard(A, 'Brand A'); await picker(u); u.c.DHBrands.release();
+  ok('S11b a blocked page cannot be released: it stays blocked on the brand it showed', u.c.DHBrands.pageBrand() === A && u.c.DHBrands.isBlocked() === true);
+}
+
 console.log('\n:: part 2: the server rule ::');
 {
+  // The part of the rule that needs no database (brandContextProblem). Three environments: neither switch, the safety
+  // policy alone (BRAND_CONTEXT_REQUIRED: what a rollback of the feature leaves on), and the feature on.
+  // The fourth way the rule comes into force, a person who can reach several brands with NEITHER switch set, reads the
+  // database and is proven with real handlers in tests/multi_brand_access.test.mjs section G (Codex handback review, R1).
   const { brandContextProblem, brandHeaderMismatch } = await import('../api/_brand-identity.js');
+  const { FLAGS, flagSnapshot } = await import('../api/_flags.js');
   const ctx = { ok: true, brandId: B, email: 'p@fixture.test', role: 'owner' };
   const req = (v) => ({ headers: v === undefined ? {} : { 'x-dh-brand': v } });
   const code = (r) => (r ? r.error : null);
-  const saved = process.env.MULTI_BRAND_ACCESS_ENABLED;
+  const saved = { m: process.env.MULTI_BRAND_ACCESS_ENABLED, p: process.env.BRAND_CONTEXT_REQUIRED };
+  const env = (m, p) => { if (m) process.env.MULTI_BRAND_ACCESS_ENABLED = 'true'; else delete process.env.MULTI_BRAND_ACCESS_ENABLED; if (p) process.env.BRAND_CONTEXT_REQUIRED = 'true'; else delete process.env.BRAND_CONTEXT_REQUIRED; };
+  const ENVS = { neither: [false, false], policy: [false, true], feature: [true, false], both: [true, true] };
   const table = {};
-  for (const flag of ['on', 'off']) {
-    if (flag === 'on') process.env.MULTI_BRAND_ACCESS_ENABLED = 'true'; else delete process.env.MULTI_BRAND_ACCESS_ENABLED;
-    for (const [name, v] of [['missing', undefined], ['empty', ''], ['malformed', 'not-a-uuid'], ['half', B.slice(0, 20)], ['other', A], ['match', B], ['MATCH', B.toUpperCase()]]) {
-      table[`${flag}/${name}/mutation`] = code(brandContextProblem(req(v), ctx, { mutation: true }));
-      table[`${flag}/${name}/read`] = code(brandContextProblem(req(v), ctx, { mutation: false }));
+  for (const [name, [m, p]] of Object.entries(ENVS)) {
+    env(m, p);
+    for (const [h, v] of [['missing', undefined], ['empty', ''], ['malformed', 'not-a-uuid'], ['half', B.slice(0, 20)], ['other', A], ['match', B], ['MATCH', B.toUpperCase()]]) {
+      table[`${name}/${h}/mutation`] = code(brandContextProblem(req(v), ctx, { mutation: true }));
+      table[`${name}/${h}/read`] = code(brandContextProblem(req(v), ctx, { mutation: false }));
     }
   }
-  if (saved === undefined) delete process.env.MULTI_BRAND_ACCESS_ENABLED; else process.env.MULTI_BRAND_ACCESS_ENABLED = saved;
   const want = (k) => {
-    const [flag, name, kind] = k.split('/');
-    if (name === 'other') return 'brand_changed';
-    if (name === 'match' || name === 'MATCH') return null;
-    return (flag === 'on' && kind === 'mutation') ? 'brand_context_required' : null;
+    const [e, h, kind] = k.split('/');
+    if (h === 'other') return 'brand_changed';
+    if (h === 'match' || h === 'MATCH') return null;
+    return (e !== 'neither' && kind === 'mutation') ? 'brand_context_required' : null;
   };
   const wrong = Object.keys(table).filter(k => table[k] !== want(k));
-  ok('P1 switch ON: a mutation with no brand, an empty one or a malformed one is refused (the old page after an A to B switch)', ['missing', 'empty', 'malformed', 'half'].every(n => table[`on/${n}/mutation`] === 'brand_context_required'), JSON.stringify(table));
-  ok('P2 a well-formed brand that is not the session\'s is refused always: switch on or off, mutation or read', ['on', 'off'].every(f => ['mutation', 'read'].every(k => table[`${f}/other/${k}`] === 'brand_changed')));
-  ok('P3 only the matching brand proceeds (any letter case)', ['on', 'off'].every(f => ['mutation', 'read'].every(k => table[`${f}/match/${k}`] === null && table[`${f}/MATCH/${k}`] === null)));
-  ok('P4 switch OFF: a request with no brand behaves as it does today (deliberate compatibility)', ['missing', 'empty', 'malformed'].every(n => table[`off/${n}/mutation`] === null && table[`off/${n}/read`] === null));
-  ok('P5 a read with no brand passes with the switch on (the first load of a page)', table['on/missing/read'] === null);
-  ok('P6 the whole table matches the rule (28 cases)', wrong.length === 0 && Object.keys(table).length === 28, wrong.join(','));
-  process.env.MULTI_BRAND_ACCESS_ENABLED = 'true';
+  ok('P1 feature ON: a mutation with no brand, an empty one or a malformed one is refused (the old page after an A to B switch)', ['missing', 'empty', 'malformed', 'half'].every(n => table[`feature/${n}/mutation`] === 'brand_context_required'), JSON.stringify(table));
+  ok('P1b R1: the SAME refusals with the feature OFF and only the safety policy on (what a rollback leaves behind)', ['missing', 'empty', 'malformed', 'half'].every(n => table[`policy/${n}/mutation`] === 'brand_context_required'));
+  ok('P2 a well-formed brand that is not the session\'s is refused in every environment, mutation or read', Object.keys(ENVS).every(f => ['mutation', 'read'].every(k => table[`${f}/other/${k}`] === 'brand_changed')));
+  ok('P3 only the matching brand proceeds (any letter case), in every environment', Object.keys(ENVS).every(f => ['mutation', 'read'].every(k => table[`${f}/match/${k}`] === null && table[`${f}/MATCH/${k}`] === null)));
+  ok('P4 neither switch: the switch-only part of the rule lets a brandless request through; whether it is then refused depends on the person (several brands = refused, see section G of the database suite)', ['missing', 'empty', 'malformed'].every(n => table[`neither/${n}/mutation`] === null && table[`neither/${n}/read`] === null));
+  ok('P5 a read with no brand passes in every environment (the first load of a page)', Object.keys(ENVS).every(f => table[`${f}/missing/read`] === null));
+  ok('P6 the whole table matches the rule (56 cases)', wrong.length === 0 && Object.keys(table).length === 56, wrong.join(','));
+  env(true, true);
   const unauth = [brandContextProblem(req(B), { ok: false, status: 401 }, { mutation: true }), brandContextProblem(req(undefined), null, { mutation: true })];
-  if (saved === undefined) delete process.env.MULTI_BRAND_ACCESS_ENABLED; else process.env.MULTI_BRAND_ACCESS_ENABLED = saved;
   ok('P7 the brand check never speaks for an identity that was refused: authorization is decided first, on its own', unauth.every(x => x === null) && brandHeaderMismatch(req(A), { ok: false }) === false);
+  // the policy switch itself: literal "true" only, read at request time, reported to the operator
+  const seen = {};
+  for (const v of [undefined, '', 'false', 'TRUE', ' true', 'true ', '1', 'true']) { env(false, false); if (v !== undefined) process.env.BRAND_CONTEXT_REQUIRED = v; seen[String(v)] = FLAGS.brandContextRequired; }
+  ok('P8 BRAND_CONTEXT_REQUIRED is on only for the literal "true"', Object.entries(seen).every(([k, v]) => v === (k === 'true')), JSON.stringify(seen));
+  env(false, true); const s1 = flagSnapshot(); env(true, false); const s2 = flagSnapshot(); env(false, false); const s3 = flagSnapshot();
+  ok('P9 the operator snapshot reports the policy switch and whether the rule is in force for everyone', s1.brandContextRequired === true && s1.brandContextForEveryone === true && s1.multiBrandAccess === false && s2.brandContextRequired === false && s2.brandContextForEveryone === true && s3.brandContextRequired === false && s3.brandContextForEveryone === false);
+  if (saved.m === undefined) delete process.env.MULTI_BRAND_ACCESS_ENABLED; else process.env.MULTI_BRAND_ACCESS_ENABLED = saved.m;
+  if (saved.p === undefined) delete process.env.BRAND_CONTEXT_REQUIRED; else process.env.BRAND_CONTEXT_REQUIRED = saved.p;
 }
 
 console.log('\n:: part 3: the routes ::');
@@ -203,13 +229,15 @@ console.log('\n:: part 3: the routes ::');
   const exempt = (/const BRAND_CONTEXT_EXEMPT = new Set\(\[([^\]]*)\]\)/.exec(acct) || [])[1] || '';
   const reads = (/const BRAND_READ_ACTIONS = new Set\(\[([^\]]*)\]\)/.exec(acct) || [])[1] || '';
   ok('R1 brand-account: exactly four actions are exempt and exactly four are reads; every other signed-in action is a mutation by default', exempt.replace(/\s/g, '') === "'brand-list','brand-switch','logout','logout-everywhere'" && reads.replace(/\s/g, '') === "'data','agreement-list','booker-status','claim-status'", exempt + ' | ' + reads);
-  ok('R2 brand-account: the check runs inside the signed-in gate, before the role decision and before any action body', /if \(!BRAND_CONTEXT_EXEMPT\.has\(action\)\) \{\s*\n\s*const problem = brandContextProblem\(req, ctx, \{ mutation: !BRAND_READ_ACTIONS\.has\(action\) \}\);\s*\n\s*if \(problem\) return jsonResp\(res, 409, problem\);/.test(acct) && acct.indexOf('brandContextProblem(req, ctx, { mutation: !BRAND_READ_ACTIONS') < acct.indexOf("if (action === 'booking-signup')"));
+  ok('R2 brand-account: the check runs inside the signed-in gate, before the role decision and before any action body', /if \(!BRAND_CONTEXT_EXEMPT\.has\(action\)\) \{\s*\n\s*const problem = await brandContextCheck\(req, ctx, \{ mutation: !BRAND_READ_ACTIONS\.has\(action\) \}\);[^\n]*\n\s*if \(problem\) return jsonResp\(res, 409, problem\);/.test(acct) && acct.indexOf('brandContextCheck(req, ctx, { mutation: !BRAND_READ_ACTIONS') < acct.indexOf("if (action === 'booking-signup')"));
   ok('R3 booking and checkout ask for the brand before anything else is read or written', /const auth = await requireBrandSession\(req, body, \{ mutation: true \}\);/.test(read('api/book.js')) && /const auth = await requireBrandSession\(req, body, \{ mutation: true \}\);/.test(read('api/checkout.js')));
   const booking = read('api/booking.js');
   ok('R4 signing a store agreement asks for the brand; a brand refusal is answered 409, not "sign in"', /const _sAuth = await requireBrandSession\(req, body, \{ mutation: true \}\);[^\n]*\n\s*if \(!_sAuth\.ok && _sAuth\.status === 409\) return res\.status\(409\)/.test(booking) && /if \(!_bAuth\.ok && _bAuth\.status === 409\) return res\.status\(409\)/.test(booking));
   const js = read('brand/brands.js');
-  ok('R5 the page script never reassigns the page brand and never reads it from a brand list', (js.match(/state\.pageBrand = /g) || []).length === 1 && !/state\.activeId/.test(js) && /h\.set\('X-DH-Brand', state\.pageBrand\)/.test(js));
+  ok('R5 the page script sets the page brand in one place (guard), clears it only on sign-out (release), and never reads it from a brand list', (js.match(/state\.pageBrand = String\(brandId\)/g) || []).length === 1 && (js.match(/state\.pageBrand = /g) || []).length === 2 && /release: function \(\) \{ if \(!state\.blocked && !state\.switching\) \{ state\.pageBrand = null;/.test(js) && !/state\.activeId/.test(js) && /h\.set\('X-DH-Brand', state\.pageBrand\)/.test(js));
   ok('R6 the three brand pages load the script; the sign-in page names the brand on its one follow-up save', [read('brand/dashboard/index.html'), read('r/gus/index.html'), read('brand/signin/index.html')].every(s => s.includes('<script src="/brand/brands.js"></script>')) && /'X-DH-Brand': String\(j\.brand_id \|\| ''\)/.test(read('brand/signin/index.html')));
+  ok('R8 R1: the pages install the request guard whenever a brand is signed in, NOT only when the multi-brand feature is on', /if \(window\.DHBrands && profile\.id\) window\.DHBrands\.guard\(profile\.id, profile\.company_name \|\| ''\);/.test(read('brand/dashboard/index.html')) && /if \(window\.DHBrands && j\.profile\.id\) window\.DHBrands\.guard\(j\.profile\.id, j\.profile\.company_name \|\| ''\);/.test(read('r/gus/index.html')) && !/multi_brand === true && window\.DHBrands\) window\.DHBrands\.guard/.test(read('r/gus/index.html')));
+  ok('R9 R1: every brand route calls the full check (switches AND the person\'s brands), not the switch-only part', /await brandContextCheck\(req, ctx, \{ mutation: !BRAND_READ_ACTIONS\.has\(action\) \}\)/.test(acct) && /await brandContextCheck\(req, ctx, \{ mutation: opts\.mutation === true \}\)/.test(read('api/_booking-identity.js')) && /if \(!bR\.ok \|\| !mR\.ok\) return true;/.test(read('api/_brand-identity.js')) && /\} catch \(_\) \{ return true; \}/.test(read('api/_brand-identity.js')));
   ok('R7 no brand page sends a brand request by a path the stamp cannot reach (no XMLHttpRequest, no sendBeacon, no form posts to the API)', ![read('brand/dashboard/index.html'), read('r/gus/index.html'), read('brand/signin/index.html')].some(s => /XMLHttpRequest|sendBeacon|<form[^>]*action="\/api/.test(s)));
 }
 

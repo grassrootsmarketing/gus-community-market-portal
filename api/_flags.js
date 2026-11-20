@@ -26,6 +26,8 @@
 //                                                         when off; on = the store must be payout-ready)
 //   multiBrandAccess      MULTI_BRAND_ACCESS_ENABLED      api/_brand-identity.js (Full access role), api/brand-account.js  false
 //                                                         (brand list, switch, access levels, requests), api/brand-signup.js
+//   brandContextRequired  BRAND_CONTEXT_REQUIRED          api/_brand-identity.js brandContextCheck() (mutations must     false
+//                                                         name the brand their page shows; stays on through a rollback)
 
 // G0-v2-3: LITERAL comparison. No trimming, no case-folding. "TRUE", " true ", "True" are all
 // DISABLED. Normalisation would contradict the stated safety property, so the strict form is the
@@ -104,6 +106,15 @@ export const FLAGS = {
   // "Full access" keeps signing in but is treated as "Booking only" until the switch is back on. Read at request time:
   // set in Vercel (Production and Preview separately) and redeploy.
   get multiBrandAccess() { return exactTrue(process.env.MULTI_BRAND_ACCESS_ENABLED); },
+  // The brand-context SAFETY rule, separate from the feature (Codex multi-brand handback review, R1). Exactly "true" =
+  // every signed-in request that changes something for a brand must name the brand its page shows, whether or not the
+  // multi-brand feature is on. Set it no later than the first time MULTI_BRAND_ACCESS_ENABLED is set, and LEAVE IT SET
+  // when the feature is switched off again: switching the feature off ends new switching and narrows Full access, but
+  // sessions and memberships made while it was on remain, so a page left open on another brand must still be refused.
+  // The rule also applies by itself, with neither variable set, to any person who can reach more than one brand (read
+  // from the database per request in api/_brand-identity.js), so a forgotten variable cannot reopen the gap.
+  // Unset is safe only for an environment where multi-brand access has never been switched on.
+  get brandContextRequired() { return exactTrue(process.env.BRAND_CONTEXT_REQUIRED); },
 };
 
 // The COI worker's own mode ladder. Parsed here with the SAME rule the worker uses so the probe and
@@ -154,6 +165,10 @@ export function flagSnapshot() {
     // 0116: an enforced control (api/checkout.js). Before 0116 this field was the literal 'hard_disabled'.
     connectedCheckout: FLAGS.connectedCheckout,
     multiBrandAccess: FLAGS.multiBrandAccess,
+    // R1: the raw policy switch, and whether the rule is in force for EVERYONE (either switch). It is in force for a
+    // person with several brands regardless of both.
+    brandContextRequired: FLAGS.brandContextRequired,
+    brandContextForEveryone: FLAGS.brandContextRequired || FLAGS.multiBrandAccess,
     max_cart: maxCartSize(),
   };
 }

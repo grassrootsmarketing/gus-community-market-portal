@@ -64,7 +64,7 @@ const api = read('api/brand-account.js');
   const signup = read('api/brand-signup.js');
   ok('4k. sign-in adds the picker data only while the switch is on, after the session is issued for the default brand', /if \(FLAGS\.multiBrandAccess\) \{/.test(signup) && signup.indexOf('setBrandCookie(res, token);') < signup.indexOf("rpc('brand_access_list'") && /choose: brands\.length > 1 \|\| invites\.length > 0/.test(signup));
   const bi = read('api/_booking-identity.js');
-  ok('4l. booking, checkout and agreement signing run the brand-context check too', /const problem = brandContextProblem\(req, ctx, \{ mutation: opts\.mutation === true \}\);\s*\n\s*if \(problem\) return \{ ok: false, status: 409/.test(bi));
+  ok('4l. booking, checkout and agreement signing run the brand-context check too', /const problem = await brandContextCheck\(req, ctx, \{ mutation: opts\.mutation === true \}\);\s*\n\s*if \(problem\) return \{ ok: false, status: 409/.test(bi));
   const idn = read('api/_brand-identity.js');
   ok('4m. with the switch off a Full access member resolves as Booking only (rollback narrows, never widens)', /const role = FLAGS\.multiBrandAccess \? ROLES\.MANAGER : ROLES\.BOOKER;/.test(idn));
 }

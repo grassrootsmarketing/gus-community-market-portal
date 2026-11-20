@@ -302,6 +302,39 @@ try {
       await shot(op2, '6-owner-people-with-access-desktop');
       await op2.setViewportSize(PHONE); await op2.locator('#bookerCard').scrollIntoViewIfNeeded(); await shot(op2, '6-owner-people-with-access-phone');
       await ownerCtx2.close();
+
+      // R1 (Codex handback review): the feature is switched OFF again while the rep's session is on Golden Tofu (Full
+      // access) and nothing else is set. The session is kept. A request with the cookie and no brand stamp (an old page)
+      // is refused; a freshly loaded page works for the brand it shows, at Booking only, and cannot switch.
+      await page.goto(`${BASE}/brand/dashboard`, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(() => window._multiBrand === true && window.DHBrands && window.DHBrands.pageBrand(), null, { timeout: 15000 });
+      const signed = await page.evaluate(async (slug) => {
+        const post = (b) => fetch('/api/booking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(b) }).then(async r => ({ s: r.status, j: await r.json() }));
+        const chk = await post({ action: 'agreement-check', retailer_slug: slug });
+        return (await post({ action: 'agreement-sign', retailer_slug: slug, signed_name: 'Helen Rep', policy_hash: chk.j.policies.policy_hash })).s;
+      }, slug);
+      delete ENV.MULTI_BRAND_ACCESS_ENABLED; delete ENV.BRAND_CONTEXT_REQUIRED;      // the rollback: feature off, no policy switch
+      const count = async () => (await db(`bookings?retailer_id=eq.${retailerId}&select=id`)).body.length;
+      const n0 = await count();
+      const hdr = { 'Content-Type': 'application/json', Origin: BASE, 'Sec-Fetch-Site': 'same-origin' };
+      const bookBody = (d) => ({ retailer_slug: slug, venue_id: venueId, demo_date: dayP(d), demo_time: '11:00 AM', op_key: 'r1key' + Date.now().toString(36) + Math.random().toString(36).slice(2) + 'abcdefgh', product_skus: [item('gt-1', 'Miso Tofu')] });
+      const r1Book = await ctx.request.post(`${BASE}/api/book`, { headers: hdr, data: bookBody(40) });
+      const r1Save = await ctx.request.post(`${BASE}/api/brand-account`, { headers: hdr, data: { action: 'remove-coi' } });
+      const r1Wrong = await ctx.request.post(`${BASE}/api/book`, { headers: { ...hdr, 'X-DH-Brand': rep.id }, data: bookBody(40) });
+      const codes = [r1Book, r1Save, r1Wrong].map(r => r.status()).join(',') + ' ' + ((await r1Book.json()).error) + ' ' + ((await r1Wrong.json()).error);
+      ok('desktop 7a. R1: after the feature is switched off, an old page (cookie only, or naming another brand) still cannot book or change anything under the kept session', signed === 200 && codes === '409,409,409 brand_context_required brand_changed' && (await count()) === n0
+        && !!one(await db(`brands?id=eq.${tofu.id}&select=default_coi_url`)).default_coi_url, signed + ' ' + codes);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(() => window._brandRole && window.DHBrands && window.DHBrands.pageBrand(), null, { timeout: 15000 });
+      const fresh = await page.evaluate(async (body) => {
+        const post = (url, b) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(b) }).then(async r => r.status + ':' + ((await r.json().catch(() => ({}))).error || ''));
+        return { multi: window._multiBrand, role: window._brandRole, shows: window.DHBrands.pageBrand(), switcher: document.getElementById('brandSwitcherSlot').innerHTML.length, name: document.getElementById('navName').textContent,
+          sw: await post('/api/brand-account', { action: 'brand-switch', brand_id: body.own }), book: await post('/api/book', body.book) };
+      }, { own: rep.id, book: bookBody(41) });
+      const made = one(await db(`bookings?retailer_id=eq.${retailerId}&select=brand_id,brand_name&order=created_at.desc&limit=1`));
+      ok('desktop 7b. R1: a freshly loaded page with the feature off still stamps its brand, works for that brand at Booking only, shows no switcher and cannot switch', fresh.multi === false && fresh.role === 'booker' && fresh.shows === tofu.id && fresh.switcher === 0 && fresh.name === 'Golden Tofu Co'
+        && fresh.sw === '404:multi_brand_disabled' && fresh.book === '200:' && (await count()) === n0 + 1 && made.brand_id === tofu.id && made.brand_name === 'Golden Tofu Co', JSON.stringify(fresh));
+      ENV.MULTI_BRAND_ACCESS_ENABLED = 'true';                                       // back on for the phone pass
     }
     await ctx.close();
   }

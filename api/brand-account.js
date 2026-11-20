@@ -10,7 +10,7 @@ import { FLAGS } from './_flags.js';
 import { monthlyOverviewWindow } from './_monthly-overview.js';   // the month the store's monthly summary email reports on
 import { monthlySummaryDue, monthAfter, summarizeMonth, monthlySummaryEmail } from './_monthly-summary.js';   // when it is due, its figures and its look
 import { hashCode } from './_verify.js';
-import { resolveBrandIdentity, requireRole, requireOwner, bookingBelongsTo, brandContextProblem, ROLES } from './_brand-identity.js';   // 0097: the brand identity boundary
+import { resolveBrandIdentity, requireRole, requireOwner, bookingBelongsTo, brandContextCheck, ROLES } from './_brand-identity.js';   // 0097: the brand identity boundary
 import { actionEmail } from './_code-email.js';   // 0121: the branded card for access emails
 
 import { getBinding, sendBindingFailure } from './_env.js';
@@ -560,7 +560,7 @@ export default async function handler(req, res) {
     // its brand (missing or malformed = refused). The four that list or change the active brand, or sign out, are exempt:
     // they are how a stale page recovers. The four reads below may arrive without a brand (the first load of a page).
     if (!BRAND_CONTEXT_EXEMPT.has(action)) {
-      const problem = brandContextProblem(req, ctx, { mutation: !BRAND_READ_ACTIONS.has(action) });
+      const problem = await brandContextCheck(req, ctx, { mutation: !BRAND_READ_ACTIONS.has(action) });   // R1: in force by policy, by feature, or for a person with several brands
       if (problem) return jsonResp(res, 409, problem);
     }
     const deny = (STRICT_OWNER_ACTIONS.has(action) ? requireOwner(ctx) : null) || requireRole(ctx, ...allowed);

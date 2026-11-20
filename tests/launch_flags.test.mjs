@@ -24,6 +24,8 @@ const SWITCHES = [
   ['CONNECTED_CHECKOUT_ENABLED', 'connectedCheckout'],
   // 0121 (2026-11-19): one person, many brands. Off unless exactly "true".
   ['MULTI_BRAND_ACCESS_ENABLED', 'multiBrandAccess'],
+  // R1 (2026-11-19): the brand-context safety rule, its own switch so it outlives a feature rollback.
+  ['BRAND_CONTEXT_REQUIRED', 'brandContextRequired'],
 ];
 const ALL_ENV = [...SWITCHES.map(([e]) => e), 'COI_ENFORCEMENT_MODE', 'LAUNCH_MAX_CART'];
 

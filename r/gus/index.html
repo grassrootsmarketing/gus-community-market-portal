@@ -2855,7 +2855,8 @@ function supportMailto(a) {
                         // 0121: one person, many brands. Keep what the server said about the active brand and the
                         // person's other brands, and stamp every later request from this page with the brand it shows.
                         window._brandData = j;
-                        if (j.multi_brand === true && window.DHBrands) window.DHBrands.guard(j.profile.id, j.profile.company_name || '');
+                        // R1: stamped whether or not the multi-brand feature is on.
+                        if (window.DHBrands && j.profile.id) window.DHBrands.guard(j.profile.id, j.profile.company_name || '');
                         // 0097: a designated booker books from the saved list only and cannot sign agreements or upload a COI.
                         window._brandRole = j.role === 'booker' ? 'booker' : 'owner';
                         window._brandMe = j.me || null;
@@ -2925,6 +2926,7 @@ function supportMailto(a) {
                 });
             } catch (_) {}
             window._brandProfile = null; window._brandMe = null; window._brandData = null;
+            if (window.DHBrands) window.DHBrands.release();   // signed out: this page shows no brand until the next sign-in names one
             // signed out: the previous customer's payment link is neither kept nor shown
             forgetPayLink();
             try { const n = document.getElementById('unpaidNotice'); if (n) n.remove(); } catch (_) {}
