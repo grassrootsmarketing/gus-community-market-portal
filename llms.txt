@@ -1,0 +1,29 @@
+# Demohub
+
+> Demohub is demo scheduling software for independent grocery stores. Brands book and pay for in-store sampling demos on the store's own booking page, and the store sees every demo on one calendar.
+
+Demohub is free for retailers at any number of locations, with no subscription and no setup fee. The brand pays a flat $10 booking fee per demo. A store may also charge its own demo fee, which is optional and is paid out to the store's bank account.
+
+## What it does
+- Each store gets a booking page where brands pick a location, a date and a time, and pay by card.
+- A brand's certificate of insurance has to be on file before it can book, and the brand agrees to the store's demo guidelines when it books.
+- Brands list the items they will sample, with name, UPC and distributor, so the store can have product on the shelf.
+- Store staff get an email when a demo is confirmed, plus reminders a week before, three days before and on the morning of the demo.
+- Every demo at every location shows on one calendar in the store's admin dashboard, and staff can view a read-only calendar without logging in.
+- Brands keep one free profile that works at every store on Demohub.
+
+## Who it is for
+- Independent grocers, co-ops, natural food markets and specialty food shops that host brand sampling demos.
+- Food and beverage brands, and the demo agencies that book on their behalf.
+
+## Pages
+- [Home](https://www.demohubhq.com/): overview for retailers
+- [30 second tour](https://www.demohubhq.com/tour): a short video of how booking works
+- [Pricing](https://www.demohubhq.com/pricing): free for retailers, $10 per demo for brands
+- [For brands](https://www.demohubhq.com/brand): how brands book and what they need
+- [FAQ](https://www.demohubhq.com/faq): common questions from retailers and brands
+- [Set up a store](https://www.demohubhq.com/signup): free sign-up for retailers
+- [Security](https://www.demohubhq.com/security)
+
+## Contact
+David Heiser, founder: david@demohubhq.com

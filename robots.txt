@@ -1,0 +1,11 @@
+# Demohub: search engines and AI assistants are welcome on the public pages.
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /owner
+Disallow: /brand/dashboard
+Disallow: /brand/accept
+Disallow: /r/*/admin
+Disallow: /r/*/calendar
+
+Sitemap: https://www.demohubhq.com/sitemap.xml
