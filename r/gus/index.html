@@ -457,7 +457,8 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                                 <div class="cart-empty">No demos selected yet.<br>Pick a date and time above!</div>
                             </div>
                             
-                            <div class="summary-line"><span>Price per demo</span><span id="pricePerDemo">$30.00</span></div>
+                            <div class="summary-line"><span id="pricePerDemoLabel">Price per demo</span><span id="pricePerDemo"></span></div>
+                            <div class="summary-line" id="bookingFeePerDemoLine" style="display:none;"><span>Demohub booking fee, per demo</span><span id="bookingFeePerDemo"></span></div>
                             <div class="summary-line"><span>Number of demos</span><span id="demoCount">0</span></div>
                             <div class="summary-line" id="subtotalLine" style="display:none;"><span>Demo fees</span><span id="subtotalPrice">$0.00</span></div>
                             <div class="summary-line" id="platformFeeLine" style="display:none;"><span title="Demohub keeps a small booking fee, paid to Stripe securely." style="cursor:help;">Booking fee (× <span id="platformFeeCount">0</span>)</span><span id="platformFeePrice">$0.00</span></div>
@@ -692,6 +693,11 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         let currentLocation = '';  // populated from first venue after data loads
         let cart = [];
         const PRICE_PER_DEMO = 30;
+        // Shown under a location's price at stores on the split, so the cart total is no surprise.
+        function bookingFeeNote() {
+            const pka = !!(window.state && window.state.retailer && window.state.retailer.platform_keeps_all);
+            return pka ? '' : '<div style="font-family:\'Hanken Grotesk\',sans-serif; font-size:0.74rem; font-weight:500; color:var(--ink-700); margin-top:2px; white-space:nowrap;">plus $' + PLATFORM_FEE_PER_DEMO + ' booking fee</div>';
+        }
         const PLATFORM_FEE_PER_DEMO = 10;  // flat Demohub booking fee per confirmed demo (2026-10-28: $5 to $10)
         const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
         
@@ -1204,7 +1210,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                         ${addrEsc || 'Address on request'}
                     </div>
                     <div class="location-card-footer">
-                        <div class="location-card-price">$${fee} <span>/ demo</span></div>
+                        <div class="location-card-price">$${fee} <span>/ demo</span>${bookingFeeNote()}</div>
                         <span class="btn btn-primary" style="padding: 8px 16px; font-size: 0.9rem;">Book Now</span>
                     </div>
                 </div>`;
@@ -1234,7 +1240,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                         ${addrEsc || 'Address on request'}
                     </div>
                     <div class="location-card-footer" style="padding:10px 18px 14px;">
-                        <div class="location-card-price" style="font-size:0.95rem;">$${fee}<span style="font-size:0.8rem;"> / demo</span></div>
+                        <div class="location-card-price" style="font-size:0.95rem;">$${fee}<span style="font-size:0.8rem;"> / demo</span>${bookingFeeNote()}</div>
                         <span class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem;">Book</span>
                     </div>
                 </div>`;
@@ -1279,7 +1285,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                         <div style="font-weight:700; color:var(--forest-900); font-size:0.98rem;">${nameEsc}</div>
                         <div style="font-size:0.84rem; color:var(--ink-500); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${addrEsc || 'Address on request'}</div>
                     </div>
-                    <div style="font-size:0.9rem; font-weight:700; color:var(--forest-900); white-space:nowrap;">$${fee}<span style="font-size:0.75rem; color:var(--ink-500); font-weight:500;"> / demo</span></div>
+                    <div style="font-size:0.9rem; font-weight:700; color:var(--forest-900); white-space:nowrap;">$${fee}<span style="font-size:0.75rem; color:var(--ink-500); font-weight:500;"> / demo</span>${bookingFeeNote()}</div>
                     <span class="btn btn-primary" style="padding: 7px 14px; font-size: 0.82rem;">Book</span>
                 </div>`;
             }).join('');
@@ -1552,6 +1558,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             list.innerHTML = '';
             if (!venue) { list.innerHTML = '<div class="time-slots-empty">Pick a location to see its demo times.</div>'; return; }
             if (!selectedDate) {
+                const _dl = document.getElementById('selectedDateLabel'); if (_dl) _dl.textContent = '(pick a date first)';
                 const cfg = venueSlotsConfig(venue);
                 list.innerHTML = cfg.length
                     ? cfg.map(s => '<div class="time-slot unavailable" aria-disabled="true"><span class="time-slot-time">' + escapeHtml(slotRangeLabelJs(s)) + '</span><span class="time-slot-duration">' + s.hours + (s.hours === 1 ? ' hour' : ' hours') + '</span></div>').join('')
@@ -1626,7 +1633,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             selectedTime = null;
             document.querySelectorAll('.time-slot').forEach(t => t.classList.remove('selected'));
             renderCalendar();
-            document.getElementById('selectedDateLabel').textContent = '- ' + selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            document.getElementById('selectedDateLabel').textContent = 'for ' + selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
             applyTimeSlotAvailability();
         }
         
@@ -1727,7 +1734,15 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             // has one), not the store default: a $20 location read "$40.00" until the first slot was added.
             const perDemoFee = itemFees.length ? itemFees[0] : _venueFeeFor(currentLocation);
             const priceEl = document.getElementById('pricePerDemo');
-            if (priceEl) priceEl.textContent = '$' + Number(perDemoFee).toFixed(2);
+            // At a store on the split the per-demo price is shown as its two parts: the store's own demo
+            // fee and the flat Demohub booking fee. The location card said "$20 / demo" and the cart said
+            // "$30.00" with nothing in between.
+            const _waived = !!(itemFees.length && itemFees[0] === 0 && _code && _code.waives_fee);
+            const _storePart = _pka ? perDemoFee : (_waived ? 0 : perDemoFee - PLATFORM_FEE_PER_DEMO);
+            if (priceEl) priceEl.textContent = '$' + Number(_storePart).toFixed(2);
+            const _priceLbl = document.getElementById('pricePerDemoLabel'); if (_priceLbl) _priceLbl.textContent = _pka ? 'Price per demo' : 'Store demo fee, per demo';
+            const _bfLine = document.getElementById('bookingFeePerDemoLine'); if (_bfLine) _bfLine.style.display = _pka ? 'none' : '';
+            const _bfEl = document.getElementById('bookingFeePerDemo'); if (_bfEl) _bfEl.textContent = '$' + Number(_waived ? 0 : PLATFORM_FEE_PER_DEMO).toFixed(2);
             const subLine = document.getElementById('subtotalLine');
             const platLine = document.getElementById('platformFeeLine');
             const subEl = document.getElementById('subtotalPrice');
@@ -1735,7 +1750,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             // Hide the separate platform-fee line, bundled into per-demo price now
             if (platLine) platLine.style.display = 'none';
             if (cart.length > 0) {
-                if (subLine) subLine.style.display = '';
+                if (subLine) subLine.style.display = _pka ? '' : 'none';
                 if (subEl) subEl.textContent = '$' + total.toFixed(2);
                 if (trustLine) trustLine.style.display = '';
             } else {
@@ -3168,7 +3183,7 @@ function supportMailto(a) {
         }
 
         function applySettingsToInputs() {
-            if (!window.state.settings) return;
+            if (!window.state.settings) { try { showFirstBookableMonth(); } catch (_) {} return; }
             const s = window.state.settings;
             const fee = document.getElementById('settingDemoFee');
             const dur = document.getElementById('settingDemoDuration');
