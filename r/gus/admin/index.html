@@ -2963,7 +2963,7 @@ END:VEVENT
                 const coiOk = b.coi_status === 'approved';
                 heldBadge = coiOk
                     ? '<div style="margin-top:4px;"><span style="display:inline-block;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:2px 8px;border-radius:99px;background:#e6f4ea;color:#1c7a3f;" title="Card authorized, not charged. COI approved. Confirm now captures the card.">Held &middot; COI approved</span></div>'
-                    : '<div style="margin-top:4px;"><span style="display:inline-block;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:2px 8px;border-radius:99px;background:#fff0e6;color:#b4531f;" title="Card authorized, not charged. Confirm charges the card once their COI is approved; decline releases the hold at $0.">Held &middot; COI pending</span></div>';
+                    : '<div style="margin-top:4px;"><span style="display:inline-block;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:2px 8px;border-radius:99px;background:#fff0e6;color:#b4531f;" title="Card authorized, not charged. Confirm charges the card once their COI is approved; decline releases the hold at $0.">Held &middot; COI pending</span><div style="font-size:0.76rem;color:#7a3a12;margin-top:4px;line-height:1.35;">Demohub is reviewing this brand's certificate of insurance. Nothing for you to do yet.</div></div>';
             }
             return `<tr data-booking-id="${b.id}">
                     <td>${escapeHtml(dateLabel)}</td>

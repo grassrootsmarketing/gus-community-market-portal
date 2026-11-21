@@ -23,7 +23,7 @@ const signup = readFileSync('brand/index.html', 'utf8');
 ok('3a. sign-up page says one account per brand, created by the brand', /One account per brand, created by the brand/.test(signup));
 const booking = readFileSync('r/gus/index.html', 'utf8');
 ok('3b. booking modal (new account) says one account per brand', /One account per brand, created by the brand\.<\/p>/.test(booking));
-ok('4. signed-in booking modal says Booking as <brand>', /'Booking as ' \+ \(bp\.company_name \|\| bp\.email\)/.test(booking) && /under its insurance and agreements/.test(booking));
+ok('4. signed-in booking modal says Booking as <brand>', /'Booking as ' \+ bp\.company_name/.test(booking) && /under its insurance and agreements/.test(booking));
 
 // live route check through the project's route harness (no database: the 410 fires before any read). The harness
 // needs the SB_* variables from demohub.env; without them (plain npm test) the static checks above stand alone.

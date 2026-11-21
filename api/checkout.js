@@ -221,6 +221,9 @@ export default async function handler(req, res) {
     if (FLAGS.provisionalHolds && provisionalCart) {
       params['payment_intent_data[capture_method]'] = 'manual';
     }
+    // Display only: at a store on the split, name the two parts of the amount the brand pays for this demo.
+    const usd = (c) => '$' + (Number(c) / 100).toFixed(2);
+    const splitNote = (a) => { const total = Number(a.customer_amount), fee = Number(a.platform_fee_amount); return (!platformKeepsAll && Number.isFinite(total) && Number.isFinite(fee) && fee > 0 && total > fee) ? `. ${usd(total - fee)} store demo fee plus ${usd(fee)} Demohub booking fee` : ''; };
     let idx = 0;
     for (const a of allocs) {
       const bk = bkById.get(a.booking_id) || {};
@@ -228,7 +231,7 @@ export default async function handler(req, res) {
       params[`line_items[${idx}][price_data][currency]`] = 'usd';
       params[`line_items[${idx}][price_data][unit_amount]`] = String(a.customer_amount);
       params[`line_items[${idx}][price_data][product_data][name]`] = `Demo at ${vname}`;
-      params[`line_items[${idx}][price_data][product_data][description]`] = `${bk.brand_name || ''} - ${(bk.demo_date || '')} ${(bk.demo_time || '')} (${retailer.name || ''})`.trim();
+      params[`line_items[${idx}][price_data][product_data][description]`] = `${bk.brand_name || ''} - ${(bk.demo_date || '')} ${(bk.demo_time || '')} (${retailer.name || ''})`.trim() + splitNote(a);
       params[`line_items[${idx}][quantity]`] = '1';
       idx++;
     }

@@ -471,6 +471,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                                 <div id="bookingCodeMsg" style="display:none; font-size:0.8rem; margin-top:6px; line-height:1.4;"></div>
                             </div>
                             <div class="summary-line total"><span>Total</span><span id="totalPrice">$0.00</span></div>
+                            <div id="earlierUnpaidNote" style="display:none; font-size:0.82rem; line-height:1.45; color:#7a3a12; background:#fff3ed; border:1px solid #ed682f55; border-radius:8px; padding:8px 10px; margin-top:8px;"></div>
                             <div id="paymentTrustLine" style="display:none; font-size:0.72rem; color:var(--ink-500); margin-top:6px; padding:8px 10px; background:var(--forest-50); border-radius:6px; text-align:center;">
                                 <span style="font-weight:600; color:var(--forest-800);">Secure checkout via Stripe.</span> We never see your card details.
                             </div>
@@ -777,6 +778,11 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         // allowed to proceed, card is held (authorized), not charged, 24h to get approved.
         // The card hold only exists at a store where Demohub collects the payment (the pilot arrangement). At a store
         // on the split, checkout refuses a brand without an approved certificate, so the page must not offer the hold.
+        // A brand that signed up without naming itself is stored under its email address. That is a placeholder, not a name.
+        function _brandNameMissing(bp) {
+            const n = String((bp && bp.company_name) || '').trim().toLowerCase();
+            return !n || n === String((bp && bp.email) || '').trim().toLowerCase();
+        }
         function _holdsHere() {
             return !!window._provisionalHolds && !!(window.state && window.state.retailer && window.state.retailer.platform_keeps_all);
         }
@@ -828,8 +834,8 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 return;
             }
             if (cs.state === 'pending') { h = '✓ Certificate uploaded, pending review'; m = 'Your certificate is waiting for Demohub to review it. <strong>Uploading a certificate does not itself confirm your demo.</strong>' + (holdsOn ? hold : ' You can book and pay as soon as it is approved, and we will email you when that happens.'); b = 'Replace certificate'; hn = 'Need to replace it? Upload a new file.'; }
-            else if (cs.state === 'missing') { h = 'Certificate of insurance required'; m = holdsOn ? 'No approved certificate of insurance is on file. Uploading one does not itself confirm a demo; the store reviews it first.' + hold : 'This store needs your certificate of insurance on file before you can book. Upload it here and Demohub will review it. You can book and pay as soon as it is approved, and we will email you when that happens.'; }
-            else if (cs.state === 'rejected') { h = 'Certificate not accepted'; m = 'The store could not accept your last certificate. Upload a corrected certificate for review; uploading does not itself confirm a demo.' + hold; }
+            else if (cs.state === 'missing') { h = 'Certificate of insurance required'; m = holdsOn ? 'No approved certificate of insurance is on file. Uploading one does not itself confirm a demo; Demohub reviews it first.' + hold : 'This store needs your certificate of insurance on file before you can book. Upload it here and Demohub will review it. You can book and pay as soon as it is approved, and we will email you when that happens.'; }
+            else if (cs.state === 'rejected') { h = 'Certificate not accepted'; m = 'Your last certificate could not be accepted. Upload a corrected certificate for review; uploading does not itself confirm a demo.' + hold; }
             else if (cs.state === 'expired') { h = 'Certificate does not cover your demo date'; m = 'Your approved certificate expires on <strong>' + fmt(cs.exp) + '</strong>, before <strong>' + fmt(cs.latest) + '</strong>. Upload an updated certificate covering that date; uploading does not itself confirm a demo.' + hold; b = 'Upload updated certificate'; }
             else if (cs.state === 'no_expiry') { h = 'Coverage dates could not be verified'; m = 'Your certificate is approved but its coverage period could not be read, so it cannot be matched to your demo date. Upload a certificate that shows the coverage dates; uploading does not itself confirm a demo.' + hold; b = 'Upload certificate with dates'; }
             if (head) head.textContent = h; if (msg) msg.innerHTML = m; if (btn) btn.textContent = b; if (hint) hint.textContent = hn;
@@ -935,6 +941,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 // _updateBookCoiGate() restyles the card for the new state (green "pending review" when holds are on;
                 // the covered state hides the card). Nothing to override: an upload is received, not yet accepted.
                 _updateBookCoiGate();
+                { const e0 = document.getElementById('bookErrorMsg'); if (e0) { e0.textContent = ''; e0.style.display = 'none'; } }
             } catch (err) {
                 if (msg) msg.textContent = (err && err.message) || 'Upload failed. Please try again.';
             } finally {
@@ -1719,6 +1726,14 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             
             cartCount.textContent = cart.length;
             demoCount.textContent = cart.length;
+            try {
+                const note = document.getElementById('earlierUnpaidNote');
+                const earlier = (window._brandProfile && typeof loadOutcomes === 'function') ? loadOutcomes().paid : [];
+                if (note) {
+                    if (earlier.length) { note.textContent = 'You also have ' + earlier.length + ' unpaid ' + (earlier.length === 1 ? 'demo' : 'demos') + ' saved from earlier' + (earlier.some(o => o.label) ? ' (' + earlier.map(o => o.label).filter(Boolean).join('; ') + ')' : '') + '. ' + (earlier.length === 1 ? 'It is' : 'They are') + ' added on the payment page, so the amount you pay there will be higher than this total.'; note.style.display = 'block'; }
+                    else { note.textContent = ''; note.style.display = 'none'; }
+                }
+            } catch (_) {}
             // Price each demo by its OWN venue fee, this MUST match what the server charges
             // (checkout-session.js bills per booking.venue.demo_fee). Using the retailer-level
             // settings.demo_fee here caused a display-vs-charge mismatch (page said $10, card hit $30).
@@ -1813,7 +1828,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             if (bp) {
                 // SIGNED IN: prefill, hide password + signup framing, plain "Confirm booking"
                 const setVal = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
-                setVal('bookBrandName', bp.company_name);
+                setVal('bookBrandName', _brandNameMissing(bp) ? '' : bp.company_name);
                 setVal('bookContactName', bp.contact_name);
                 setVal('bookContactEmail', bp.email);
                 setVal('bookContactPhone', bp.phone);
@@ -1852,7 +1867,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 if (pwGroup) pwGroup.style.display = 'none';
                 if (title) title.textContent = 'Confirm your booking';
                 // Booking as (2026-10-17): the brand this request is made in the name of, said before anything is paid.
-                if (subtitle) subtitle.textContent = 'Booking as ' + (bp.company_name || bp.email) + '. Every demo in this request is made in that brand\'s name, under its insurance and agreements. We\'ll confirm by email.';
+                if (subtitle) subtitle.textContent = _brandNameMissing(bp) ? 'Enter your brand name below. Every demo in this request is made in that brand\'s name, under its insurance and agreements. We\'ll confirm by email.' : 'Booking as ' + bp.company_name + '. Every demo in this request is made in that brand\'s name, under its insurance and agreements. We\'ll confirm by email.';
                 if (signInPrompt) signInPrompt.style.display = 'none';
                 if (submitBtn) submitBtn.textContent = 'Confirm booking';
             } else {
@@ -2004,7 +2019,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             if (window._brandProfile) {
                 const bp = window._brandProfile;
                 const patch = {};
-                if (!((bp.company_name)||'').trim() && brandName) patch.company_name = brandName;
+                if (_brandNameMissing(bp) && brandName) patch.company_name = brandName;
                 if (!((bp.contact_name)||'').trim() && contactName) patch.contact_name = contactName;
                 if (!((bp.phone)||'').trim() && contactPhone) patch.phone = contactPhone;
                 // Remember the category too, so "What are you demoing?" is asked once and then pre-filled
@@ -2016,7 +2031,11 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
                             credentials: 'same-origin', body: JSON.stringify(patch),
                         });
-                        if (_pr.ok) Object.assign(bp, patch);
+                        if (_pr.ok) {
+                            Object.assign(bp, patch);
+                            // the name just saved is the name every line on this page shows from here on
+                            if (patch.company_name && window._brandData && window._brandData.active_brand) { window._brandData.active_brand.company_name = patch.company_name; try { renderBookingFor(); } catch (_) {} }
+                        }
                     } catch (_) { /* non-fatal, the guard below still protects the booking */ }
                 }
                 if (_brandContactGateBlocks(bp)) {
@@ -2948,6 +2967,8 @@ function supportMailto(a) {
                 const el = document.getElementById(id);
                 if (!el) continue;
                 if (!d || d.multi_brand !== true || !window.DHBrands) { el.innerHTML = ''; el.style.display = 'none'; continue; }
+                // one brand, not named yet: "Booking for <email>" says nothing useful, so the line waits for the name
+                if (_brandNameMissing(window._brandProfile) && (d.brands || []).length <= 1 && !(d.invites || []).length) { el.innerHTML = ''; el.style.display = 'none'; continue; }
                 window.DHBrands.forLine(el, d, { prefix: 'Booking for', dialog: { title: 'Which brand is this booking for?', confirmSwitch: function () { return !(typeof cart !== 'undefined' && cart && cart.length) || confirm('Switching brand clears the ' + cart.length + ' demo' + (cart.length > 1 ? 's' : '') + ' you have picked, because they were picked for the other brand. Switch anyway?'); } } });
             }
         }

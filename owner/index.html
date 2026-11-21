@@ -631,6 +631,7 @@ function renderDashboard(d) {
   const issuesHtml = dataIssues.length ? `<div class="card" style="border-left:4px solid #ed682f;"><strong>Some data could not be loaded completely.</strong><div class="sub" style="margin:4px 0 0;">${dataIssues.map(i => escapeHtml(i.source) + (i.problem === 'partial' ? ' (partial: ' + Number(i.loaded) + ' of ' + Number(i.total) + ')' : ' (unavailable)')).join(', ')}. Figures that use these are marked unavailable or may be low. Reload to try again.</div></div>` : '';
 
   const awaiting = na(wok.awaiting_approval) ? [] : (w.awaiting_approval || []);
+  setTimeout(refreshCoiWaiting, 0);
   const approvalHtml = awaiting.length ? `<div class="card" style="border-left:4px solid #2a6b3a;"><strong>${awaiting.length} retailer${awaiting.length === 1 ? '' : 's'} waiting for your approval</strong><div class="sub" style="margin:4px 0 10px;">${awaiting.slice(0, 6).map(r => escapeHtml(r.name) + (r.is_demo ? ' (demo account)' : '') + ' · signed up ' + fmtD(r.created_at)).join('<br>')}${awaiting.length > 6 ? '<br>and ' + (awaiting.length - 6) + ' more' : ''}</div><button class="btn-sm" data-goto-tab="retailers">Review in Retailers</button></div>` : '';
   const newCount = (w.new_brands_30d || []).length + (w.new_retailers_30d || []).length;
   const newItems = (w.new_retailers_30d || []).slice(0, 6).map(r => `<li><strong>Retailer</strong> ${escapeHtml(r.name)} <span style="color:var(--ink-500);">· ${fmtD(r.created_at)}${r.verification_status === 'pending' ? ' · pending approval' : ''}</span></li>`).join('')
@@ -681,11 +682,12 @@ function renderDashboard(d) {
       <button class="owner-tab" data-tab="brands">Brands</button>
       <button class="owner-tab" data-tab="analytics">Analytics</button>
       <button class="owner-tab" data-tab="billing">Billing</button>
-      <button class="owner-tab" data-tab="coi">COI Review</button>
+      <button class="owner-tab" data-tab="coi">COI Review<span id="coiTabCount" style="display:none; margin-left:6px; background:#c2410c; color:#fff; border-radius:99px; font-size:0.72rem; font-weight:700; padding:1px 7px;"></span></button>
 <button class="owner-tab" data-tab="status">Status</button>
     </div>
     <div class="tab-pane active" data-pane="overview">
       ${approvalHtml}
+      <div id="coiOverviewNotice"></div>
       ${issuesHtml}
       ${growthHero}
       ${stats}
@@ -1564,6 +1566,21 @@ function renderCoiExpiring(list, meta) {
     + '</tbody></table>';
 }
 
+// Certificates waiting for review, shown where the owner lands: a count on the tab and a notice on the Overview.
+function paintCoiWaiting(queue) {
+  const n = Array.isArray(queue) ? queue.length : 0;
+  const c = document.getElementById('coiTabCount');
+  if (c) { c.textContent = n ? String(n) : ''; c.style.display = n ? 'inline-block' : 'none'; }
+  const box = document.getElementById('coiOverviewNotice');
+  if (box) box.innerHTML = n ? '<div class="card" style="border-left:4px solid #c2410c;"><strong>' + n + ' certificate' + (n === 1 ? '' : 's') + ' of insurance waiting for your review</strong><div class="sub" style="margin:4px 0 10px;">A brand cannot book or pay at a new store until its certificate is approved.</div><button class="btn-sm" data-goto-tab="coi">Review in COI Review</button></div>' : '';
+}
+async function refreshCoiWaiting() {
+  try {
+    const r = await fetch('/api/admin-auth', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'owner-coi-queue' }) });
+    const j = await r.json();
+    if (r.ok) paintCoiWaiting(Array.isArray(j.queue) ? j.queue : []);
+  } catch (_) { /* the Overview still renders without the notice */ }
+}
 async function loadCoiQueue() {
   const el = document.getElementById('coiQueueBody');
   if (!el) return;
@@ -1578,6 +1595,7 @@ async function loadCoiQueue() {
     const j = await r.json();
     if (!r.ok) { el.textContent = j.error === 'Owner authentication required' ? 'Sign in as the platform owner to review certificates.' : ('Could not load the queue: ' + (j.error || r.status)); return; }
     _coiQueue = Array.isArray(j.queue) ? j.queue : [];
+    paintCoiWaiting(_coiQueue);
     renderCoiQueue();
   } catch (e) {
     el.textContent = 'Could not load the queue.';
