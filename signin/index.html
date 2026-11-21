@@ -32,12 +32,18 @@ h1 { font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-s
 .signin-card { background: white; border: 1px solid rgba(15,44,23,0.08); border-radius: 16px; padding: 36px 32px 28px; box-shadow: 0 1px 3px rgba(15,44,23,0.04); display: flex; flex-direction: column; }
 .signin-card-eyebrow { font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.16em; color: var(--clay-700); margin-bottom: 18px; }
 .signin-card h2 { font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1; font-size: 1.7rem; font-weight:620; color: var(--forest-900); margin-bottom: 8px; line-height: 1.2; letter-spacing: -0.01em; }
-.rep-card { margin-top: 24px; flex-direction: row; align-items: center; justify-content: space-between; gap: 20px 32px; flex-wrap: wrap; padding: 28px 32px; }
-.rep-card .rep-card-text { flex: 1 1 380px; min-width: 0; }
-.rep-card .signin-card-eyebrow { margin-bottom: 10px; }
-.rep-card .desc { margin-bottom: 0; }
-.rep-card .rep-card-btn { width: auto; margin-top: 0; padding: 14px 28px; white-space: nowrap; flex: 0 0 auto; }
-@media (max-width: 760px) { .rep-card { margin-top: 20px; } .rep-card .rep-card-btn { width: 100%; } }
+.rep-card { margin-top: 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; padding: 16px 24px; background: #fff; border: 1px solid rgba(15,44,23,0.14); border-radius: 14px; }
+.rep-card .rep-card-text { flex: 1 1 320px; min-width: 0; }
+.rep-card-title { font-size: 1rem; font-weight: 700; color: var(--forest-900); }
+.rep-card-desc { font-size: 0.9rem; color: var(--ink-700); line-height: 1.45; margin-top: 2px; }
+.rep-card-btn { flex: 0 0 auto; display: inline-block; padding: 10px 18px; border: 1.5px solid var(--forest-900); border-radius: 10px; color: var(--forest-900); background: #fff; font-weight: 700; font-size: 0.92rem; text-decoration: none; white-space: nowrap; }
+.rep-card-btn:hover { background: var(--forest-900); color: #fff; }
+@media (max-width: 760px) { .rep-card-btn { width: 100%; text-align: center; } }
+.page-hero-wrap.signin-hero.compact .hero { padding: 28px 24px 56px !important; }
+.page-hero-wrap.signin-hero.compact .hero h1 { font-size: clamp(2rem, 3.4vw, 2.8rem) !important; }
+.signin-hero + .container, .container.signin-main { margin-top: 36px; }
+.signin-hero .hero > .container { margin: 0 auto !important; }
+.page-hero-wrap.signin-hero.compact .hero .lede { margin-bottom: 0 !important; }
 .signin-card .desc { font-size: 0.94rem; color: var(--ink-700); margin-bottom: 24px; line-height: 1.5; }
 .signin-card .form-body { flex: 1; display: flex; flex-direction: column; }
 .label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--forest-900); margin-bottom: 6px; }
@@ -187,7 +193,7 @@ h1, h2 { font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variati
 
 </head>
 <body>
-<div class="page-hero-wrap">
+<div class="page-hero-wrap compact signin-hero">
 <nav class="nav">
   <a href="/" class="brand">
     <svg class="brand-mark" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
@@ -201,7 +207,7 @@ h1, h2 { font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variati
   <p class="lede">Pick the account you're signing in to. Each has its own dashboard.</p>
 </div></section>
 </div>
-<main class="container">
+<main class="container signin-main">
   
   <div id="recognizedCard" class="recognized-card" style="display:none;">
     <!-- Shipped empty: JS fills identity before the card is shown. Hardcoded sample identity
@@ -292,13 +298,12 @@ h1, h2 { font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variati
       </div>
     </div>
   </div>
-  <div class="signin-card rep-card" id="repCard">
+  <div class="rep-card" id="repCard">
     <div class="rep-card-text">
-      <div class="signin-card-eyebrow">Agency or rep</div>
-      <h2>Sign in to the brands you book for</h2>
-      <p class="desc">You book demos for one brand or several, as an agency, a broker or a rep. Use your own email. One sign-in covers every brand that gave you access.</p>
+      <div class="rep-card-title">Agency or rep booking for brands?</div>
+      <p class="rep-card-desc">Use your own email. One sign-in covers every brand that gave you access.</p>
     </div>
-    <a class="btn rep-card-btn" href="/brand/signin#rep">Sign in as a rep &rarr;</a>
+    <a class="rep-card-btn" href="/brand/signin#rep">Sign in as a rep &rarr;</a>
   </div>
 </div>
 </main>
