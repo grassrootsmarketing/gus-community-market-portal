@@ -48,6 +48,7 @@ body { font-family:'Hanken Grotesk',-apple-system,sans-serif; background:var(--c
 .access-opt { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.2); border-radius:12px; cursor:pointer; background:#fff; }
 .access-opt input { margin-top:3px; flex:0 0 auto; }
 .access-opt strong { color:var(--forest-900); }
+.access-actions .btn, .access-actions .access-level { height:42px; padding-top:0; padding-bottom:0; box-sizing:border-box; font-size:0.9rem; line-height:1; display:inline-flex; align-items:center; }
 .nav-name-line { display:flex; align-items:center; }
 .nav-person { font-size:0.92rem; color:var(--forest-900); font-weight:600; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 6px; }
 .nav-brand { font-size:0.72rem; color:var(--forest-700); font-weight:500; opacity:0.72; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 6px; cursor:default; }
@@ -771,8 +772,8 @@ async function loadData() {
     if (window._brandRole === 'booker') {
       bookerBand.innerHTML = `<div style="padding:9px 0; background:#eef5ee; border-bottom:1px solid #2a6b3a33;">
     <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; max-width:1440px; margin:0 auto; padding:0 24px; font-size:0.9rem; line-height:1.45; color:#2c4a34;">
-      <span style="display:inline-block; padding:2px 10px; border-radius:999px; background:#2a6b3a; color:#fff; font-size:0.72rem; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; white-space:nowrap;">Designated booker</span>
-      <span>Signed in as the designated booker for <strong>${escapeHtml(profile.company_name || 'this brand')}</strong>. You can book demos. The account owner manages the profile, items, insurance, agreements and payments.</span>
+      <span style="display:inline-block; padding:2px 10px; border-radius:999px; background:#2a6b3a; color:#fff; font-size:0.72rem; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; white-space:nowrap;">${window._multiBrand ? 'Booking only' : 'Designated booker'}</span>
+      <span>${window._multiBrand ? 'You are booking demos for' : 'Signed in as the designated booker for'} <strong>${escapeHtml(profile.company_name || 'this brand')}</strong>. ${window._multiBrand ? '' : 'You can book demos. '}The account owner manages the profile, items, insurance, agreements and payments.</span>
     </div>
   </div>`;
       bookerBand.style.display = 'block';
@@ -2502,7 +2503,7 @@ async function openStoreAgreement(slug, name) {
   ov.innerHTML = '<div role="dialog" aria-modal="true" aria-labelledby="dhAgreementTitle" style="background:#fff; border-radius:16px; max-width:560px; width:100%; max-height:calc(100vh - 40px); overflow-y:auto; box-shadow:0 24px 60px rgba(15,44,23,0.32); font-family:inherit;">'
     + '<div style="padding:26px 28px 14px;"><div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.14em; color:#ed682f; margin-bottom:8px;">Store policies</div>'
     + '<h2 id="dhAgreementTitle" style="font-size:1.35rem; font-weight:800; color:#0f2c17; margin:0 0 10px; letter-spacing:-0.02em;">Agree to ' + escapeHtml(rn) + '\'s policies</h2>'
-    + '<div style="font-size:0.92rem; line-height:1.55; color:#3a3a36;">Read the store\'s demo and cancellation policies below. Your agreement covers every demo your brand books there, including demos made by your designated booker, until the store changes its policies or a year passes.</div></div>'
+    + '<div style="font-size:0.92rem; line-height:1.55; color:#3a3a36;">Read the store\'s demo and cancellation policies below. Your agreement covers every demo your brand books there, including demos made by anyone you gave access to, until the store changes its policies or a year passes.</div></div>'
     + '<div style="padding:0 28px;"><div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px;"><div style="font-size:0.74rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em;">Demo and cancellation policies</div><button type="button" id="dhAgreementJump" style="background:transparent; border:1px solid rgba(15,44,23,0.18); color:#2a5b32; border-radius:999px; padding:4px 12px; font-family:inherit; font-size:0.78rem; font-weight:700; cursor:pointer;">Scroll to the end &darr;</button></div>'
     + '<div id="dhAgreementBox" tabindex="0" style="background:#f9f7f2; border:1px solid rgba(15,44,23,0.1); border-radius:10px; padding:14px 16px; max-height:260px; overflow-y:auto; font-size:0.88rem; line-height:1.55; color:#3a3a36;">'
     + '<div style="font-size:0.7rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em; margin:0 0 6px;">Demo policy</div><div id="dhAgreementDemo" style="white-space:pre-wrap; margin:0 0 14px;"></div>'
@@ -2645,7 +2646,7 @@ function renderBookerAccount() {
     <div class="card" style="margin-bottom:18px;">
       <h2 style="margin:0 0 6px;">Signed in as</h2>
       <div style="font-size:1.05rem;color:var(--forest-900);font-weight:700;">${escapeHtml(me.name || me.email || '')}</div>
-      <div style="font-size:0.92rem;color:var(--ink-500);margin-top:2px;">${escapeHtml(me.email || '')} · booker for ${escapeHtml(p.company_name || 'this brand')}</div>
+      <div style="font-size:0.92rem;color:var(--ink-500);margin-top:2px;">${escapeHtml(me.email || '')} · ${window._multiBrand ? 'Booking only for' : 'booker for'} ${escapeHtml(p.company_name || 'this brand')}</div>
       <div style="font-size:0.88rem;color:var(--ink-700);margin-top:12px;line-height:1.5;">You can book demos for this brand, pick from its saved items and see its demos. You cannot add or change items, see payments or receipts, change the profile or insurance certificate, or agree to a store's policies. The brand account owner (${escapeHtml(p.owner_email || 'the owner')}) manages those, and can end this access at any time.</div>
       <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;">
         <button class="btn btn-secondary" onclick="window.brandSignOut()">Sign out</button>
@@ -2689,7 +2690,7 @@ function renderAccessCard(el, st, post) {
       + '<div style="font-size:0.9rem; color:var(--ink-700);">' + escapeHtml(m.email) + '</div>'
       + '<div style="font-size:0.84rem; margin-top:3px; color:' + (m.status === 'accepted' ? 'var(--forest-700)' : '#a14e2a') + ';">'
       + (m.status === 'accepted' ? 'Active since ' + escapeHtml(when(m.accepted_at)) : (m.delivery && m.delivery.status === 'sent' ? 'Invitation sent ' + escapeHtml(when(m.delivery.delivered_at || m.invited_at)) + ', not accepted yet' : 'Invited ' + escapeHtml(when(m.invited_at)) + ', the email may not have gone out. Use Resend.')) + '</div></div>'
-      + '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;"><select class="access-level" data-level aria-label="Access level for ' + escapeHtml(m.email) + '"><option value="booking"' + (m.level === 'booking' ? ' selected' : '') + '>Booking only</option><option value="full"' + (m.level === 'full' ? ' selected' : '') + '>Full access</option></select>'
+      + '<div class="access-actions" style="display:flex; gap:8px; flex-wrap:wrap; align-items:stretch;"><select class="access-level" data-level aria-label="Access level for ' + escapeHtml(m.email) + '"><option value="booking"' + (m.level === 'booking' ? ' selected' : '') + '>Booking only</option><option value="full"' + (m.level === 'full' ? ' selected' : '') + '>Full access</option></select>'
       + (m.status === 'pending' ? '<button class="btn btn-secondary" data-resend>Resend</button>' : '')
       + '<button class="btn btn-ghost" data-revoke data-status="' + escapeHtml(m.status) + '" style="color:#a14e2a;">' + (m.status === 'accepted' ? 'Remove access' : 'Cancel invitation') + '</button></div></div>').join('')
     : '<div style="font-size:0.92rem; color:var(--ink-700); padding:4px 0 10px;">Nobody else has access yet.</div>';

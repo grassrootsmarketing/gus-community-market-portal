@@ -11,7 +11,7 @@ import { monthlyOverviewWindow } from './_monthly-overview.js';   // the month t
 import { monthlySummaryDue, monthAfter, summarizeMonth, monthlySummaryEmail } from './_monthly-summary.js';   // when it is due, its figures and its look
 import { hashCode } from './_verify.js';
 import { resolveBrandIdentity, requireRole, requireOwner, bookingBelongsTo, brandContextCheck, ROLES } from './_brand-identity.js';   // 0097: the brand identity boundary
-import { actionEmail } from './_code-email.js';   // 0121: the branded card for access emails
+import { actionEmail, codeEmail } from './_code-email.js';   // 0121: the branded card for access emails
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
@@ -512,7 +512,7 @@ function bookerAgreementView(a) {
   return { id: a.id, retailer_id: a.retailer_id, retailers: { id: ret.id, name: ret.name, slug: ret.slug }, signed_at: a.signed_at, expires_at: a.expires_at,
     superseded_at: a.superseded_at || null, policy_hash: a.policy_hash, is_active: a.is_active, is_expired: a.is_expired, is_current_policy: a.is_current_policy };
 }
-const BOOKER_PERMISSIONS_TEXT = 'A booker can book demos for this brand, pick from its saved items, and see its demos. A booker cannot add or change items, see payments or receipts, change the profile or insurance certificate, or agree to a store\'s policies.';
+const BOOKER_PERMISSIONS_TEXT = 'Booking only lets a person book demos for this brand, pick from its saved items, and see its demos. That person cannot add or change items, see payments or receipts, change the profile or insurance certificate, or agree to a store\'s policies.';
 
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
@@ -1817,7 +1817,7 @@ export default async function handler(req, res) {
           from: FROM_EMAIL, to: toEmail, replyTo: REPLY_TO,
           subject: `${brandName} gave you ${full ? 'full access' : 'booking access'} on Demohub`,
           html: actionEmail({ eyebrow: full ? 'Full access' : 'Booking only', heading: `You are invited to work for ${brandName}.`,
-            paragraphs: [`${inviterEmail} invited you to ${full ? 'manage' : 'book demos for'} ${brandName} on Demohub.`, full ? FULL_ACCESS_PERMISSIONS_TEXT : BOOKER_PERMISSIONS_TEXT,
+            paragraphs: [`${inviterEmail} sent this invitation.`, full ? FULL_ACCESS_PERMISSIONS_TEXT : BOOKER_PERMISSIONS_TEXT,
               'If you already use Demohub for another brand, this brand is added to your list and you switch between them with one click.'],
             button: { label: 'Review and accept', url: link },
             note: 'The link is good for 24 hours and only works with a code we send to this address when you open it. If you were not expecting this, ignore the email and nothing happens.',
@@ -1926,9 +1926,9 @@ export default async function handler(req, res) {
       const member = g.member;
       const brand = { company_name: g.brand_name };
       let inv;
-      try { inv = await createInvite(member, ctxB.brandId, email, ctxB.email); } catch (_) { return jsonResp(res, 503, { error: 'invite_unavailable', message: 'The booker was recorded but the invitation could not be created. Use Resend.', booker: personRow(member), delivery: { status: 'none' } }); }
+      try { inv = await createInvite(member, ctxB.brandId, email, ctxB.email); } catch (_) { return jsonResp(res, 503, { error: 'invite_unavailable', message: 'This person is recorded but the invitation could not be created. Use Resend.', booker: personRow(member), delivery: { status: 'none' } }); }
       const delivery = await deliverInvite(inv.inviteId, (brand && brand.company_name) || 'A brand', email, inv.token, ctxB.email, member.role);
-      return jsonResp(res, 200, { ok: true, booker: personRow(member), delivery, message: delivery.status === 'sent' ? 'Invitation sent.' : delivery.status === 'failed' ? 'The booker is recorded but the invitation email could not be sent. Use Resend.' : 'The booker is recorded; email is not configured in this environment, so no invitation went out.' });
+      return jsonResp(res, 200, { ok: true, booker: personRow(member), delivery, message: delivery.status === 'sent' ? 'Invitation sent.' : delivery.status === 'failed' ? 'This person is recorded but the invitation email could not be sent. Use Resend.' : 'This person is recorded; email is not configured in this environment, so no invitation went out.' });
     }
 
     if (action === 'booker-resend') {
@@ -1996,7 +1996,7 @@ export default async function handler(req, res) {
       if (!set || set.outcome !== 'ok') return jsonResp(res, 410, { error: 'invite_not_valid', message: 'This invitation link is not valid any more. Ask the brand to send a new one.' });
       if (!_b.resendApiKey) return jsonResp(res, 503, { error: 'mail_not_configured', message: 'The confirmation code could not be sent in this environment.' });
       const sent = await sendMailQuietly({ from: FROM_EMAIL, to: set.email, replyTo: REPLY_TO, subject: 'Your Demohub code to accept booking access',
-        html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#1c1c1a;"><p style="font-size:15px;">Enter this code on the acceptance page to confirm you hold this address. It expires in 30 minutes.</p><div style="font-family:Menlo,Consolas,monospace;font-size:32px;font-weight:700;letter-spacing:0.15em;color:#0f2c17;">${code}</div><p style="font-size:13px;color:#6b6a64;margin-top:24px;">If you did not open an invitation from ${escapeText(set.brand_name || 'a brand')}, ignore this email.</p></div>` }, { binding: _b });
+        html: codeEmail({ eyebrow: 'Accept your invitation', heading: set.brand_name || 'Demohub', label: 'Your code', code, minutes: 30, hint: 'Enter this code on the acceptance page you have open. It confirms this email address is yours.', reason: 'You are receiving this because you opened an invitation from ' + (set.brand_name || 'a brand') + ' on Demohub.' }) }, { binding: _b });
       if (!sent || !sent.ok) return jsonResp(res, 503, { error: 'code_not_sent', message: 'We could not send the confirmation code just now. Reload the page to try again.' });
       const masked = String(set.email).replace(/^(.)(.*)(@.*)$/, (m, a, b2, c) => a + '*'.repeat(Math.min(6, Math.max(1, b2.length))) + c);
       return jsonResp(res, 200, { ok: true, brand_name: set.brand_name || 'this brand', email_hint: masked, booker_name: set.booker_name || null, permissions: set.role === 'manager' ? FULL_ACCESS_PERMISSIONS_TEXT : BOOKER_PERMISSIONS_TEXT, level: set.role === 'manager' ? 'full' : 'booking', level_label: set.role === 'manager' ? 'Full access' : 'Booking only', terms_version: DEMOHUB_TOS_VERSION, terms_url: '/terms' });

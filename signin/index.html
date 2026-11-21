@@ -32,6 +32,12 @@ h1 { font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-s
 .signin-card { background: white; border: 1px solid rgba(15,44,23,0.08); border-radius: 16px; padding: 36px 32px 28px; box-shadow: 0 1px 3px rgba(15,44,23,0.04); display: flex; flex-direction: column; }
 .signin-card-eyebrow { font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.16em; color: var(--clay-700); margin-bottom: 18px; }
 .signin-card h2 { font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1; font-size: 1.7rem; font-weight:620; color: var(--forest-900); margin-bottom: 8px; line-height: 1.2; letter-spacing: -0.01em; }
+.rep-card { margin-top: 24px; flex-direction: row; align-items: center; justify-content: space-between; gap: 20px 32px; flex-wrap: wrap; padding: 28px 32px; }
+.rep-card .rep-card-text { flex: 1 1 380px; min-width: 0; }
+.rep-card .signin-card-eyebrow { margin-bottom: 10px; }
+.rep-card .desc { margin-bottom: 0; }
+.rep-card .rep-card-btn { width: auto; margin-top: 0; padding: 14px 28px; white-space: nowrap; flex: 0 0 auto; }
+@media (max-width: 760px) { .rep-card { margin-top: 20px; } .rep-card .rep-card-btn { width: 100%; } }
 .signin-card .desc { font-size: 0.94rem; color: var(--ink-700); margin-bottom: 24px; line-height: 1.5; }
 .signin-card .form-body { flex: 1; display: flex; flex-direction: column; }
 .label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--forest-900); margin-bottom: 6px; }
@@ -285,6 +291,14 @@ h1, h2 { font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variati
         New brand? <a href="/brand/signin#signup">Sign up as a brand &rarr;</a>
       </div>
     </div>
+  </div>
+  <div class="signin-card rep-card" id="repCard">
+    <div class="rep-card-text">
+      <div class="signin-card-eyebrow">Agency or rep</div>
+      <h2>Sign in to the brands you book for</h2>
+      <p class="desc">You book demos for one brand or several, as an agency, a broker or a rep. Use your own email. One sign-in covers every brand that gave you access.</p>
+    </div>
+    <a class="btn rep-card-btn" href="/brand/signin#rep">Sign in as a rep &rarr;</a>
   </div>
 </div>
 </main>

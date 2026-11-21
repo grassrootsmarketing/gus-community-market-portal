@@ -20,6 +20,8 @@ body { font-family:'Hanken Grotesk',-apple-system,sans-serif; background:var(--c
 .eyebrow { font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.18em; color:var(--clay-700); margin-bottom:18px; }
 h1 { font-family:'Hanken Grotesk', sans-serif; font-size:2.6rem; font-weight:400; line-height:1.1; letter-spacing:-0.02em; color:var(--forest-900); margin-bottom:14px; }
 .lede { font-size:1.05rem; color:var(--ink-700); margin-bottom:32px; }
+.rep-note { font-size:0.9rem; color:var(--ink-700); line-height:1.5; margin:18px 0 0; padding-top:16px; border-top:1px solid rgba(15,44,23,0.1); }
+.rep-note a { color:var(--forest-700); font-weight:600; }
 .card { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:16px; padding:32px; box-shadow:0 1px 3px rgba(15,44,23,0.04); }
 .tabs { display:flex; gap:4px; background:var(--cream-100); border-radius:10px; padding:4px; margin-bottom:24px; }
 .tab { flex:1; padding:10px 16px; background:transparent; border:1px solid transparent; border-radius:7px; font-family:inherit; font-size:0.92rem; font-weight:600; color:var(--ink-700); cursor:pointer; transition:all 0.15s; }
@@ -97,9 +99,9 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 <main class="container">
   <div class="eyebrow" id="eyebrow">Brand account</div>
   <h1 id="title">Sign in or create a brand profile</h1>
-  <p class="lede">One profile that follows you to every Demohub retailer. Upload your COI once. Track every demo across every store, all in one place.</p>
+  <p class="lede" id="lede">One profile that follows you to every Demohub retailer. Upload your COI once. Track every demo across every store, all in one place.</p>
   <div class="card" id="formCard">
-    <div class="tabs">
+    <div class="tabs" id="tabsRow">
       <button type="button" class="tab active" data-tab="signin">Sign in</button>
       <button type="button" class="tab" data-tab="signup">Create account</button>
     </div>
@@ -113,6 +115,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         </div>
         <button class="btn" type="submit" id="signinBtn">Send magic link</button>
       </form>
+      <p class="rep-note" id="repNote">Booking for brands as an agency or rep? Sign in here with your own email. One sign-in covers every brand that gave you access.</p>
     </div>
     <div class="pane" id="paneSignup">
       <form id="signupForm">
@@ -249,15 +252,32 @@ function setTab(name) {
 }
 tabs.forEach(t => t.addEventListener('click', () => setTab(t.dataset.tab)));
 
-// Honor #signup or #signin hash on page load
+// The agency or rep door (/brand/signin#rep): the same sign-in, worded for a person who books for brands. A rep does
+// not create a brand, so the Create account tab is hidden here.
+function setRepMode(on) {
+  document.getElementById('eyebrow').textContent = on ? 'Agency or rep' : 'Brand account';
+  document.getElementById('title').textContent = on ? 'Sign in to the brands you book for' : 'Sign in or create a brand profile';
+  document.getElementById('lede').textContent = on
+    ? 'Use your own email, the one the brand invited. One sign-in covers every brand that gave you access, and you pick the brand you are working on after you sign in.'
+    : 'One profile that follows you to every Demohub retailer. Upload your COI once. Track every demo across every store, all in one place.';
+  document.getElementById('tabsRow').style.display = on ? 'none' : '';
+  document.getElementById('repNote').innerHTML = on
+    ? 'No access yet? Ask the brand to add your email under Account, People with access. <a href="/brand/signin#signin">I am signing in to my own brand</a>'
+    : 'Booking for brands as an agency or rep? Sign in here with your own email. One sign-in covers every brand that gave you access.';
+  document.getElementById('signinEmail').placeholder = on ? 'you@youragency.com' : 'you@yourbrand.com';
+  if (on) setTab('signin');
+}
+// Honor #signup, #signin or #rep hash on page load
 const initialHash = (location.hash || '').replace('#','').trim();
 if (initialHash === 'signup' || initialHash === 'signin') {
   setTab(initialHash);
 }
+if (initialHash === 'rep') setRepMode(true);
 // Update tab when hash changes (back/forward navigation)
 window.addEventListener('hashchange', () => {
   const h = (location.hash || '').replace('#','').trim();
-  if (h === 'signup' || h === 'signin') setTab(h);
+  if (h === 'signup' || h === 'signin') { setRepMode(false); setTab(h); }
+  if (h === 'rep') setRepMode(true);
 });
 
 async function submit(action, data, btn, btnText) {

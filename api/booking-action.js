@@ -920,7 +920,7 @@ export default async function handler(req, res) {
         if (recipients.owner) {
           const ownerEmail = recipients.owner;
           {
-            const who = recipients.bookedBy || 'your designated booker';
+            const who = recipients.bookedBy || 'someone you gave access to';
             const note = '<p style="font-size:13px;line-height:1.5;color:#6b6a64;margin:24px 0 0;">This demo was booked by ' + String(who).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) + ' on your brand\'s account. Payment details and any refund go to the person who paid.</p>';
             let ownerHtml;
             if (action === 'confirm') ownerHtml = htmlBody;
