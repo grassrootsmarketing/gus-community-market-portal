@@ -240,7 +240,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
       <div class="form-row">
         <label class="label" for="billingEmail">Email</label>
         <input class="input" id="billingEmail" name="billing_email" type="email" placeholder="you@yourbusiness.com" required autocomplete="email">
-        <div class="hint">We'll send your admin URL here.</div>
+        <div class="hint">We'll email a six-digit code here to confirm it's you.</div>
       </div>
       <div class="form-row">
         <label class="label" for="storeCount">How many stores?</label>
@@ -252,12 +252,12 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
           </div>
           <span class="stepper-unit" id="storeUnit">store</span>
         </div>
-        <div class="hint" id="storeCountHint">You can set your demo fee + per-store details after sign-up.</div>
+        <div class="hint" id="storeCountHint">Charging a demo fee is optional. You can set it, and each store's details, after sign-up.</div>
         <div id="storeCountProNote" style="display:none; margin-top:8px; padding:10px 12px; background:#fff3ed; border-left:4px solid #ed682f; border-radius:8px; font-size:0.85rem; color:#a14e2a; line-height:1.5;">
           Every location is free. Add as many as you run.
         </div>
       </div>
-      <button class="btn" type="submit" id="submitBtn">Create my Demohub</button>
+      <button class="btn" type="submit" id="submitBtn">Create my store</button>
     </form>
     <div class="terms">By creating an account you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</div>
   </div>
@@ -367,7 +367,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     } catch (err) {
       showError(errorBox, err.message || 'Could not send the code. Try again.');
     } finally {
-      submitBtn.disabled = false; submitBtn.textContent = 'Create my Demohub';
+      submitBtn.disabled = false; submitBtn.textContent = 'Create my store';
     }
   });
 

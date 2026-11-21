@@ -13,6 +13,7 @@ import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
 import { codeEmail } from './_code-email.js';
 import { OWNER_ALERT_EMAIL } from './_owner-alerts.js';
+import { REFUNDABLE_CANCELLATION_POLICY } from './_refund-cutoff.js';
 import { signinConfigStatus, signinUnavailableBody, logSigninConfigFailure, logSigninMailFailure } from './_signin-config.js';
 let _b = null;
 
@@ -62,6 +63,19 @@ export async function provisionVerifiedRetailer(email, storeName, opts = {}) {
   const row = Array.isArray(rows) ? rows[0] : rows;
   if (!row || !row.retailer_id) throw new Error('provision returned no row');
   return { retailer_id: row.retailer_id, slug: row.slug, session_id: row.session_id, already: !!row.already };
+}
+
+// A brand-new store starts with 14 days' notice (the database function still writes 60, which hid every
+// date for two months), a $20 example fee the store can change or set to 0, and the 72-hour cancellation
+// sentence that matches its default refund setting (the column default is an older 48-hour sentence).
+// Best effort: the store already exists, so a failure here is logged and sign-up carries on.
+export async function applyNewStoreDefaults(retailerId) {
+  try {
+    const id = encodeURIComponent(retailerId);
+    const a = await rest(`settings?retailer_id=eq.${id}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ advance_booking_days: 14, demo_fee: 20 }) });
+    const b = await rest(`retailers?id=eq.${id}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ cancellation_policy: REFUNDABLE_CANCELLATION_POLICY }) });
+    if (!a.ok || !b.ok) console.error('retailer-signup: new store defaults not applied', a.status, b.status);
+  } catch (e) { console.error('retailer-signup: new store defaults failed', e && e.message); }
 }
 
 // The code email wears the same card as the store sign-in email (api/_code-email.js), with the store's own name on it.
@@ -182,6 +196,7 @@ export default async function handler(req, res) {
       phone: pl.phone, contactName: pl.contact_name, storeCount: Number.isFinite(+pl.store_count) ? +pl.store_count : null,
     });
     setSessionCookie(res, prov.session_id); // land them logged in, no token in URL
+    if (!prov.already) await applyNewStoreDefaults(prov.retailer_id);
     if (!prov.already) await notifyOwnerOfSignup(email, pl, prov);
     const state = await liveState(prov.retailer_id); // read, not assumed: an existing store may already be live
     // The session leaves this process ONLY as the Set-Cookie above. It used to be in this body as
