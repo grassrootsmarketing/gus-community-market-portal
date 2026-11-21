@@ -823,7 +823,7 @@
                         </li>
                         <li data-step="bank" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
-                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Connect your bank</strong>: <span style="color:var(--ink-500);">only needed if you charge a demo fee, so it can be paid out to you.</span></span>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Connect your bank</strong>: <span style="color:var(--ink-500);">needed before brands can book and pay, even if your demo fee is $0.</span></span>
                             <a onclick="onboardingGo('settingsSection','payoutsCard')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Connect →</a>
                         </li>
                         <li data-step="link" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
@@ -1568,7 +1568,7 @@
                     <input type="text" class="form-input" id="storeZip" placeholder="94115" autocomplete="postal-code" inputmode="numeric" maxlength="10" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;">
                 </div>
             </div>
-            <div class="form-group" style="margin-bottom:14px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Demo fee (optional, USD)</label><input type="number" class="form-input" id="storeFee" min="0" step="5" value="20" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;"><div style="font-size:0.72rem; color:var(--ink-700); margin-top:4px;">Enter 0 to host demos at no charge. A fee is paid out to your bank, so it needs a connected bank account.</div></div>
+            <div class="form-group" style="margin-bottom:14px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Demo fee (optional, USD)</label><input type="number" class="form-input" id="storeFee" min="0" step="5" value="20" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;"><div style="font-size:0.72rem; color:var(--ink-700); margin-top:4px;">Enter 0 to host demos at no charge. Any fee you set is paid out to your connected bank account.</div></div>
             <div class="form-group" style="margin-bottom:18px;"><label style="display:flex; align-items:center; gap:8px; font-size:0.92rem; color:var(--forest-900); cursor:pointer;"><input type="checkbox" id="storeActive" checked> Active (accepting bookings)</label></div>
             <div id="storeModalError" style="display:none; background:#fdebe5; color:var(--clay-700); padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-bottom:14px;"></div>
             <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:8px;">
@@ -2885,7 +2885,7 @@ END:VEVENT
                         label.style.textDecoration = 'none';
                         label.style.opacity = '';
                     } else {
-                        label.innerHTML = '<strong>Connect your bank</strong>: <span style="color:var(--ink-500);">only needed if you charge a demo fee, so it can be paid out to you.</span>';
+                        label.innerHTML = '<strong>Connect your bank</strong>: <span style="color:var(--ink-500);">needed before brands can book and pay, even if your demo fee is $0.</span>';
                         // strike/opacity for this state is owned by the main loop (status.bank)
                     }
                 }
