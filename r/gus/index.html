@@ -576,7 +576,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                         <label id="bookSaveItemsLabel" style="display:none; font-size:0.82rem; color:#3a3a36; align-items:center; gap:6px;"><input type="checkbox" id="bookSaveItems" checked style="width:14px;height:14px;accent-color:#2a5b32;"> Save new items to my product list</label>
                     </div>
                     <div style="font-size:0.78rem; color:#6b6a64; margin-top:6px;">The store checks stock and arranges any order from this list. Everything you enter here, including notes, is shared with the store you book and its notification contacts.</div>
-                    <div id="bookSkuError" style="display:none; font-size:0.84rem; color:#a14e2a; margin-top:6px;"></div>
+                    <div id="bookSkuError" style="display:none; font-size:0.9rem; font-weight:600; color:#8a1f11; background:#fdecea; border:1px solid #e9b4ad; border-radius:8px; padding:8px 10px; margin-top:8px;"></div>
                 </div>
                 <div class="form-group" id="bookCategoryGroup"><label class="form-label">What are you demoing? *</label>
                     <select class="form-input" id="bookCategory" style="width:100%;">
@@ -775,8 +775,13 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 
         // A signed-in brand booking WITHOUT an approved COI while provisional holds are on:
         // allowed to proceed, card is held (authorized), not charged, 24h to get approved.
+        // The card hold only exists at a store where Demohub collects the payment (the pilot arrangement). At a store
+        // on the split, checkout refuses a brand without an approved certificate, so the page must not offer the hold.
+        function _holdsHere() {
+            return !!window._provisionalHolds && !!(window.state && window.state.retailer && window.state.retailer.platform_keeps_all);
+        }
         function _provisionalBooking() {
-            return !!window._provisionalHolds && !!window._brandProfile && !_brandCoiOk();
+            return _holdsHere() && !!window._brandProfile && !_brandCoiOk();
         }
 
         // Shows/hides the inline uploader. Returns true when booking may proceed.
@@ -822,8 +827,8 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 _updateCoiGuide(col);
                 return;
             }
-            if (cs.state === 'pending') { h = '✓ Certificate uploaded, pending review'; m = 'Your certificate is waiting for the store to review it. <strong>Uploading a certificate does not itself confirm your demo.</strong>' + (holdsOn ? hold : ' Booking opens once the store approves it.'); b = 'Replace certificate'; hn = 'Need to replace it? Upload a new file.'; }
-            else if (cs.state === 'missing') { h = 'Certificate of insurance required'; m = 'No approved certificate of insurance is on file. Uploading one does not itself confirm a demo; the store reviews it first.' + (holdsOn ? hold : ' Stores need an approved certificate before you can book.'); }
+            if (cs.state === 'pending') { h = '✓ Certificate uploaded, pending review'; m = 'Your certificate is waiting for the store to review it. <strong>Uploading a certificate does not itself confirm your demo.</strong>' + (holdsOn ? hold : ' You can book and pay as soon as the store approves it, and we will email you when that happens.'); b = 'Replace certificate'; hn = 'Need to replace it? Upload a new file.'; }
+            else if (cs.state === 'missing') { h = 'Certificate of insurance required'; m = holdsOn ? 'No approved certificate of insurance is on file. Uploading one does not itself confirm a demo; the store reviews it first.' + hold : 'This store needs your certificate of insurance on file before you can book. Upload it here and the store will review it. You can book and pay as soon as it is approved, and we will email you when that happens.'; }
             else if (cs.state === 'rejected') { h = 'Certificate not accepted'; m = 'The store could not accept your last certificate. Upload a corrected certificate for review; uploading does not itself confirm a demo.' + hold; }
             else if (cs.state === 'expired') { h = 'Certificate does not cover your demo date'; m = 'Your approved certificate expires on <strong>' + fmt(cs.exp) + '</strong>, before <strong>' + fmt(cs.latest) + '</strong>. Upload an updated certificate covering that date; uploading does not itself confirm a demo.' + hold; b = 'Upload updated certificate'; }
             else if (cs.state === 'no_expiry') { h = 'Coverage dates could not be verified'; m = 'Your certificate is approved but its coverage period could not be read, so it cannot be matched to your demo date. Upload a certificate that shows the coverage dates; uploading does not itself confirm a demo.' + hold; b = 'Upload certificate with dates'; }
@@ -841,8 +846,8 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             const notice = document.getElementById('bookCoiNotice');
             // This notice is provisional-holds language ("card held, not charged, 24h"). With holds OFF
             // it's false and contradicts the pending panel, so only show it when holds are actually on.
-            if (notice) notice.style.display = ((signedIn && ok) || !window._provisionalHolds) ? 'none' : '';
-            if (signedIn && !ok && window._provisionalHolds) {
+            if (notice) notice.style.display = ((signedIn && ok) || !_holdsHere()) ? 'none' : '';
+            if (signedIn && !ok && _holdsHere()) {
                 // Provisional path: the uploader stays visible (uploading now is still the best
                 // move) but booking is NOT blocked, explain the hold instead.
                 _renderCoiCard(_coiCardState(), true);
