@@ -827,8 +827,8 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 _updateCoiGuide(col);
                 return;
             }
-            if (cs.state === 'pending') { h = '✓ Certificate uploaded, pending review'; m = 'Your certificate is waiting for the store to review it. <strong>Uploading a certificate does not itself confirm your demo.</strong>' + (holdsOn ? hold : ' You can book and pay as soon as the store approves it, and we will email you when that happens.'); b = 'Replace certificate'; hn = 'Need to replace it? Upload a new file.'; }
-            else if (cs.state === 'missing') { h = 'Certificate of insurance required'; m = holdsOn ? 'No approved certificate of insurance is on file. Uploading one does not itself confirm a demo; the store reviews it first.' + hold : 'This store needs your certificate of insurance on file before you can book. Upload it here and the store will review it. You can book and pay as soon as it is approved, and we will email you when that happens.'; }
+            if (cs.state === 'pending') { h = '✓ Certificate uploaded, pending review'; m = 'Your certificate is waiting for Demohub to review it. <strong>Uploading a certificate does not itself confirm your demo.</strong>' + (holdsOn ? hold : ' You can book and pay as soon as it is approved, and we will email you when that happens.'); b = 'Replace certificate'; hn = 'Need to replace it? Upload a new file.'; }
+            else if (cs.state === 'missing') { h = 'Certificate of insurance required'; m = holdsOn ? 'No approved certificate of insurance is on file. Uploading one does not itself confirm a demo; the store reviews it first.' + hold : 'This store needs your certificate of insurance on file before you can book. Upload it here and Demohub will review it. You can book and pay as soon as it is approved, and we will email you when that happens.'; }
             else if (cs.state === 'rejected') { h = 'Certificate not accepted'; m = 'The store could not accept your last certificate. Upload a corrected certificate for review; uploading does not itself confirm a demo.' + hold; }
             else if (cs.state === 'expired') { h = 'Certificate does not cover your demo date'; m = 'Your approved certificate expires on <strong>' + fmt(cs.exp) + '</strong>, before <strong>' + fmt(cs.latest) + '</strong>. Upload an updated certificate covering that date; uploading does not itself confirm a demo.' + hold; b = 'Upload updated certificate'; }
             else if (cs.state === 'no_expiry') { h = 'Coverage dates could not be verified'; m = 'Your certificate is approved but its coverage period could not be read, so it cannot be matched to your demo date. Upload a certificate that shows the coverage dates; uploading does not itself confirm a demo.' + hold; b = 'Upload certificate with dates'; }
@@ -2029,7 +2029,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 errMsg.textContent = window._brandRole === 'booker'
                     ? 'The brand account owner (' + ((window._brandProfile.owner_email) || 'the owner') + ') must have an approved Certificate of Insurance on file before you can book here.'
                     : _coiOnFile(window._brandProfile)
-                        ? 'Your certificate is uploaded and pending the store’s review, and you can book once it’s approved.'
+                        ? 'Your certificate is uploaded and waiting for Demohub to review it. You can book as soon as it is approved.'
                         : 'Upload your Certificate of Insurance above to book.';
                 errMsg.style.display = 'block';
                 const g = document.getElementById('bookCoiGroup');
