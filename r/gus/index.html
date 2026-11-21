@@ -1122,7 +1122,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             const slug = RETAILER_SLUG || '';
             let banner = document.getElementById('previewBanner');
             const venues = (window.state && window.state.venues) || [];
-            if (venues.length !== 0) {
+            if (venues.length !== 0 || (window.state && window.state.ownerPreview)) {
                 if (banner) banner.remove();
                 return;
             }
@@ -1142,9 +1142,23 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 '<a href="/r/' + slug + '/admin?open=add-location" style="background:#f28855; color:var(--forest-900); padding:6px 14px; border-radius:6px; font-weight:700; text-decoration:none; font-size:0.82rem; white-space:nowrap;">Add location →</a>';
             document.body.insertBefore(banner, document.body.firstChild);
         }
+        // Shown only to the store's own signed-in staff while the store waits for Demohub approval.
+        function _renderApprovalPreviewBanner() {
+            let b = document.getElementById('approvalPreviewBanner');
+            if (!(window.state && window.state.ownerPreview)) { if (b) b.remove(); return; }
+            if (b) return;
+            b = document.createElement('div');
+            b.id = 'approvalPreviewBanner';
+            b.style.cssText = 'position:sticky; top:0; z-index:101; background:var(--forest-900); color:#fdf9ee; padding:12px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; justify-content:center; text-align:center; font-size:0.9rem; line-height:1.45; box-shadow:0 2px 12px rgba(15,44,23,0.15);';
+            b.innerHTML = '<span style="background:#f28855; color:var(--forest-900); font-weight:800; letter-spacing:0.06em; font-size:0.7rem; text-transform:uppercase; padding:3px 8px; border-radius:5px;">Preview</span>' +
+                '<span>Only you can see this page for now. Brands can see it and book once Demohub approves your store.</span>' +
+                '<a href="/r/' + encodeURIComponent(RETAILER_SLUG || '') + '/admin" style="background:#fdf9ee; color:var(--forest-900); padding:6px 14px; border-radius:6px; font-weight:700; text-decoration:none; font-size:0.84rem; white-space:nowrap;">Back to your admin</a>';
+            document.body.insertBefore(b, document.body.firstChild);
+        }
         function renderLocationGrid(retailer) {
             const grid = document.getElementById('locationGrid');
-            if (grid && window.state && window.state.acceptingBookings === false) {
+            _renderApprovalPreviewBanner();
+            if (grid && window.state && window.state.acceptingBookings === false && !window.state.ownerPreview) {
                 const nm = (retailer && retailer.name) || 'This store';
                 grid.innerHTML = '<div style="grid-column:1/-1; padding:18px 20px; border-radius:14px; background:#fff3ed; border:1px solid #ed682f55; color:#a14e2a; text-align:center;"><strong>' + escapeHtml(nm) + ' is not taking demo bookings on Demohub yet.</strong><div style="margin-top:6px; font-size:0.9rem;">Check back soon.</div></div>';
                 return;
@@ -3039,6 +3053,7 @@ function supportMailto(a) {
                 const r = await fetch('/api/find-retailer', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
                     body: JSON.stringify({ action: 'public-data', slug: RETAILER_SLUG }),
                 });
                 const j = await r.json();
@@ -3053,6 +3068,8 @@ function supportMailto(a) {
             window.state.retailer = data.retailer || null;
             // Go-live gate: the server refuses bookings for a store Demohub has not approved; this only explains it.
             window.state.acceptingBookings = data.accepting_bookings !== false;
+            // A signed-in member of this store's staff sees the real page while it waits for approval.
+            window.state.ownerPreview = data.owner_preview === true && data.accepting_bookings === false;
             window.state.venues = data.venues || [];
             // Phase G: extract brand color from logo, re-render location grid with it
             if (data.retailer && data.retailer.logo_url && !window._brandGradient) {

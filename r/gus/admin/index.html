@@ -2683,7 +2683,7 @@ END:VEVENT
                 if (!el) { el = document.createElement('div'); el.id = 'approvalBanner'; el.setAttribute('role', 'status');
                     el.style.cssText = 'margin:12px auto; width:calc(100% - 32px); max-width:1100px; box-sizing:border-box; padding:12px 16px; border-radius:12px; background:#fff3ed; border:1px solid #ed682f55; color:#a14e2a; font-size:0.92rem;';
                     document.body.insertBefore(el, document.body.firstChild); }
-                el.textContent = st === 'pending' ? 'Your store is waiting for Demohub approval. You can set up locations and settings now. Your booking page starts taking bookings once it is approved, and we will email you. Until then, Preview booking page shows a short not yet notice.'
+                el.textContent = st === 'pending' ? 'Your store is waiting for Demohub approval. You can set up locations and settings now. Your booking page starts taking bookings once it is approved, and we will email you. Until then, Preview booking page shows the page to you only.'
                     : st === 'suspended' ? 'Demohub has paused your booking page, so it is not taking new bookings. Email david@demohubhq.com with questions.'
                     : 'Demohub has not approved this store, so its booking page is closed. Email david@demohubhq.com with questions.';
             })();

@@ -9,6 +9,7 @@ import { signinConfigStatus } from './_signin-config.js';
 import { getBinding, sendBindingFailure, BindingError } from './_env.js';
 import { FLAGS } from './_flags.js';
 import { publicAvailability } from './_slots.js';
+import { requireRetailerMembership } from './_retailer-auth.js';
 let _b = null;
 
 // Phase E: PER-JOB cron liveness. The old check read the single most recent cron_heartbeat row of
@@ -210,6 +211,15 @@ export default async function handler(req, res) {
       if (!retailer) return res.status(404).json({ error: 'not found' });
       const rid = retailer.id;
 
+      // Owner preview: while a store waits for approval the public sees a notice instead of the page.
+      // A signed-in member of THIS store's staff is told so, and the page shows them the real layout
+      // under a preview banner. It changes what is displayed only: every booking route still refuses
+      // an unapproved store (api/_retailer-live.js). Any failure here means no preview.
+      let ownerPreview = false;
+      if (!acceptingBookings) {
+        try { const m = await requireRetailerMembership(req, {}, rid); ownerPreview = !!(m && m.ok); } catch (_) { ownerPreview = false; }
+      }
+
       // Venues: safe public columns only, active only, ordered for display
       const venueCols = 'id,name,address,availability,max_demos_per_slot,display_order,demo_fee';
       const venues = await sb(`venues?retailer_id=eq.${encodeURIComponent(rid)}&active=eq.true&select=${venueCols}&order=display_order`, true);
@@ -227,6 +237,7 @@ export default async function handler(req, res) {
         ok: true,
         retailer,
         accepting_bookings: acceptingBookings,
+        ...(ownerPreview ? { owner_preview: true } : {}),
         // Release B: hours/slots are public (the page renders them); blackout REASONS are not.
         venues: (venues || []).map(v => ({ ...v, availability: publicAvailability(v.availability) })),
         bookings: bookings || [],
