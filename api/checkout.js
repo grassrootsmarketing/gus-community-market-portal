@@ -47,6 +47,20 @@ export default async function handler(req, res) {
 
   let ids = Array.isArray(body.booking_ids) ? body.booking_ids.filter(Boolean) : (body.booking_id ? [body.booking_id] : []);
   ids = [...new Set(ids.map(String))];
+  // Codex brand-walk order item 3, Resume payment: the caller names ONE unpaid booking and the server resolves the
+  // exact, immutable set it is paid with (its payment group), so a browser that lost its cache, or another browser,
+  // can never splice a different set together. Authority over every booking of that set is checked below as for any
+  // checkout. A booking with no group yet is simply a set of one.
+  const resume = body.resume === true || (typeof body.resume_booking_id === 'string' && !!body.resume_booking_id);
+  if (typeof body.resume_booking_id === 'string' && body.resume_booking_id) {
+    if (!/^[0-9a-f-]{36}$/i.test(body.resume_booking_id)) return res.status(400).json({ error: 'booking_ids required' });
+    try {
+      const own = await sbJson(`payment_allocations?booking_id=eq.${encodeURIComponent(body.resume_booking_id)}&select=payment_group_id`);
+      const g = Array.isArray(own) && own[0] ? own[0].payment_group_id : null;
+      if (g) { const all = await sbJson(`payment_allocations?payment_group_id=eq.${encodeURIComponent(g)}&select=booking_id`); ids = [...new Set((all || []).map(a => String(a.booking_id)))]; }
+      else ids = [String(body.resume_booking_id)];
+    } catch (e) { console.error('resume lookup failed:', (e && e.message) || e); return res.status(503).json({ error: 'resume_unavailable', message: 'Could not look up this payment just now. Please try again.' }); }
+  }
   if (!ids.length) return res.status(400).json({ error: 'booking_ids required' });
   const MAX_CART = maxCartSize();
   if (ids.length > MAX_CART) return res.status(400).json({ error: 'too_many_bookings', max: MAX_CART });
@@ -352,6 +366,10 @@ export default async function handler(req, res) {
         if (!cur.ok) return unreachable();
         const v = judgeSession(cur.session, rsv.row.session_id);
         if (v.kind === 'pending') return pending();
+        // Resume payment: the session this group already has is still open and unpaid on the provider (read just now),
+        // so the authenticated caller is sent back to THAT session. No session is created and nothing is written.
+        // Without resume the answer stays attempt_in_progress, as before.
+        if (v.kind === 'payable' && resume) return res.status(200).json({ ok: true, resumed: true, url: cur.session.url, session_id: cur.session.id, payment_group_id: gid, total_cents: totalCents, booking_ids: allocs.map(a => a.booking_id) });
         if (v.kind === 'payable') return res.status(409).json({ error: 'attempt_in_progress' });
         if (v.kind === 'contradiction') return contradiction(rsv.row.session_id, v);
         // expired: recorded through the same path the webhook uses; whatever its outcome (attempt_expired, not_open

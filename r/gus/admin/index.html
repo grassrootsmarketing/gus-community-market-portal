@@ -882,6 +882,18 @@
                             </table>
                         </div>
                     </div>
+                    <!-- Codex brand-walk order item 3: demos a brand has saved but not paid for. They hold their time slot
+                         until the pay-by time, so staff see why a slot reads as taken. Read only: nothing here to act on. -->
+                    <div id="demosUnpaidInfo" style="display:none; border:1px solid #d9d4c7; background:#faf8f2; border-radius:12px; padding:14px 18px; margin-bottom:22px;">
+                        <h3 class="table-title" style="margin:0 0 4px;">Waiting for the brand to pay <span id="demosUnpaidCount" style="font-weight:400; color:var(--ink-700, #3a3a36); margin-left:6px;"></span></h3>
+                        <div style="font-size:0.84rem; color:var(--ink-700, #3a3a36); margin-bottom:10px;">These demos are saved but not booked yet. Each holds its time slot until the pay-by time, then the slot opens up again by itself. Nothing for you to do.</div>
+                        <div style="overflow-x:auto;">
+                            <table class="data-table" style="margin:0;">
+                                <thead><tr><th>Date</th><th>Time</th><th>Location</th><th>Brand</th><th>Slot is released if unpaid by</th></tr></thead>
+                                <tbody id="demosUnpaidBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
                     <div class="table-toolbar">
                         <h3 class="table-title">Upcoming Demos</h3>
                         <div class="toolbar-controls">
@@ -3000,6 +3012,21 @@ END:VEVENT
                 tbody.innerHTML = rowsHtml;
             });
             updateTabBadges(pending.length);
+            renderUnpaidInfo(venueById);
+        }
+        // Read-only: unpaid demos that are holding a slot. A held booking is already in the inbox above; this lists the
+        // ones waiting only for payment. No amounts and no payment details are shown to the store here.
+        function renderUnpaidInfo(venueById) {
+            const card = document.getElementById('demosUnpaidInfo'), tbody = document.getElementById('demosUnpaidBody'), count = document.getElementById('demosUnpaidCount');
+            if (!card || !tbody) return;
+            const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            const rows = (window.state.bookings || []).filter(b => b.status === 'pending_payment' && (b.payment_status || 'unpaid') === 'unpaid')
+                .sort((a, b) => String(a.unpaid_expires_at || '').localeCompare(String(b.unpaid_expires_at || '')));
+            const day = (ymd) => { if (!ymd) return ''; const p = String(ymd).split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
+            const when = (iso) => { if (!iso) return 'within 24 hours of booking'; try { return new Date(iso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (_) { return ''; } };
+            if (count) count.textContent = rows.length ? `(${rows.length})` : '';
+            card.style.display = rows.length ? '' : 'none';
+            tbody.innerHTML = rows.map(b => `<tr><td>${esc(day(b.demo_date))}</td><td>${esc(b.demo_time || '')}</td><td>${esc((venueById || {})[b.venue_id] || '')}</td><td><strong>${esc(b.brand_name || '')}</strong></td><td>${esc(when(b.unpaid_expires_at))}</td></tr>`).join('');
         }
 
         // Notification badge on the tabs that need attention. Currently: a count on "Demos" whenever

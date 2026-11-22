@@ -7,6 +7,7 @@
 import { validateProducts, describeErrors } from './_products.js';
 import { randomBytes, randomInt, randomUUID, createHash, scrypt, timingSafeEqual } from 'node:crypto';
 import { FLAGS } from './_flags.js';
+import { unpaidView } from './_unpaid-view.js';
 import { monthlyOverviewWindow } from './_monthly-overview.js';   // the month the store's monthly summary email reports on
 import { monthlySummaryDue, monthAfter, summarizeMonth, monthlySummaryEmail } from './_monthly-summary.js';   // when it is due, its figures and its look
 import { hashCode } from './_verify.js';
@@ -829,6 +830,28 @@ export default async function handler(req, res) {
       } catch (e) { console.warn('reschedule_proposal_version lookup failed:', (e && e.message) || e); }
       const contacts = await readList(contactsR, 'contacts');
       const pending_bookings = await readList(pendingR, 'pending_bookings');
+      // Codex brand-walk order item 3: unpaid reservations that still hold a slot ('pending_payment', or 'held' and
+      // unpaid) were in no list at all. They are their own collection, with the ledger's amounts and the time the slot
+      // is released (0123). A failed read is reported as unavailable; it is never shown as "nothing to pay".
+      let unpaid_bookings = [];
+      try {
+        const ur = await sb(`bookings?brand_id=eq.${brandId}&payment_status=eq.unpaid&status=in.(pending_payment,held)&select=id,retailer_id,venue_id,product,demo_date,demo_time,status,payment_status,unpaid_expires_at,created_at,booked_by_member_id,fee_waived,retailers(id,name,slug,platform_keeps_all),venues(id,name,demo_fee)&order=unpaid_expires_at.asc&limit=200`);
+        const rows = await readList(ur, 'unpaid_bookings');
+        let allocs = [];
+        if (rows.length) {
+          const own = await sb(`payment_allocations?booking_id=in.(${rows.map(r => encodeURIComponent(r.id)).join(',')})&select=booking_id,payment_group_id,customer_amount,platform_fee_amount`);
+          const ownRows = own.ok ? await own.json() : null;
+          if (!Array.isArray(ownRows)) { if (!unavailable.includes('unpaid_bookings')) unavailable.push('unpaid_bookings'); }
+          else if (ownRows.length) {
+            // every allocation of those groups, so a group is always shown and resumed as its complete, immutable set
+            const gids = [...new Set(ownRows.map(a => a.payment_group_id))];
+            const all = await sb(`payment_allocations?payment_group_id=in.(${gids.map(encodeURIComponent).join(',')})&select=booking_id,payment_group_id,customer_amount,platform_fee_amount`);
+            const allRows = all.ok ? await all.json() : null;
+            if (Array.isArray(allRows)) allocs = allRows; else if (!unavailable.includes('unpaid_bookings')) unavailable.push('unpaid_bookings');
+          }
+        }
+        unpaid_bookings = unavailable.includes('unpaid_bookings') ? [] : unpaidView({ bookings: rows, allocations: allocs, brand: profileRaw, role: ctx.role === ROLES.BOOKER ? 'booker' : 'owner', memberId: ctx.memberId });
+      } catch (e) { console.warn('unpaid bookings lookup failed:', (e && e.message) || e); if (!unavailable.includes('unpaid_bookings')) unavailable.push('unpaid_bookings'); unpaid_bookings = []; }
       // 0094: a retailer-initiated move awaiting this brand's answer rides on the demo as pending_move
       // (id, deadline, old slot, note), so the dashboard can show Confirm / Can't make it.
       try {
@@ -908,12 +931,13 @@ export default async function handler(req, res) {
           demos: demos.map(d => bookerDemoView(d, ctx.memberId)),
           contacts: contacts.map(c => ({ retailer_id: c.retailer_id, created_at: c.created_at, retailers: c.retailers ? { id: c.retailers.id, name: c.retailers.name, slug: c.retailers.slug } : null })),
           pending_bookings: pending_bookings.map(b => bookerPendingView(b, ctx.memberId)),
+          unpaid_bookings,   // the booker's own bookings only (decided in unpaidView)
           payments: [], unavailable: unavailable.filter(n => n !== 'payments'), truncated: truncated.filter(n => n !== 'payments'), provisional_holds: FLAGS.provisionalHolds,
         });
       }
       // 0121: 'manager' is Full access. The pages treat every role that is not 'booker' as the full portal, and use
       // active_brand.access to hide the two owner-only cards (who has access, the password).
-      return jsonResp(res, 200, { role: ctx.role === ROLES.MANAGER ? 'manager' : 'owner', me: { email: ctx.email, name: ctx.name || null, member_id: ctx.memberId }, profile, demos, contacts, pending_bookings, payments, unavailable, truncated, provisional_holds: FLAGS.provisionalHolds, ...multi });
+      return jsonResp(res, 200, { role: ctx.role === ROLES.MANAGER ? 'manager' : 'owner', me: { email: ctx.email, name: ctx.name || null, member_id: ctx.memberId }, profile, demos, contacts, pending_bookings, unpaid_bookings, payments, unavailable, truncated, provisional_holds: FLAGS.provisionalHolds, ...multi });
     }
 
     // ===== Receipt resend (2026-10-11, Codex PR-4/PR-6): the brand asks for another copy of a receipt =====
