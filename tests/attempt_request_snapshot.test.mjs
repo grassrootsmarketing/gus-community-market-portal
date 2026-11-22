@@ -70,7 +70,9 @@ const creates = () => spy.calls.stripe.filter(c => String(c.method).toUpperCase(
 const dec = (body) => body.split('&').map(kv => kv.split('=').map(decodeURIComponent));
 const enc = (pairs) => pairs.map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&');
 const SPLIT = /\. \$[\d.]+ store demo fee plus \$[\d.]+ Demohub booking fee$/;
-const withoutSplit = (body) => enc(dec(body).map(([k, v]) => [k, /\[description\]$/.test(k) ? v.replace(SPLIT, '') : v]));
+// the request shapes this route sent before 0125: no expires_at, with or without the split text
+const withoutExpiry = (body) => enc(dec(body).filter(([k]) => k !== 'expires_at'));
+const withoutSplit = (body) => enc(dec(withoutExpiry(body)).map(([k, v]) => [k, /\[description\]$/.test(k) ? v.replace(SPLIT, '') : v]));
 // a checkout whose session is created on the provider and whose bind then fails: a reservation with a session behind it
 async function failedBind(store) {
   const b = await bookAs(store);
@@ -95,6 +97,9 @@ try {
     const f = await failedBind(C);
     const sentFirst = creates().slice(-1)[0].body;
     ok('1a. the first checkout created one session, failed to bind it and left a reservation holding the exact request that was sent', f.r.statusCode === 503 && f.sessionsMade === 1 && f.at.length === 1 && f.at[0].status === 'reserved' && f.at[0].provider_request === sentFirst && f.at[0].provider_request_version === 2, f.r.statusCode + ' ' + JSON.stringify(f.r.body) + ' ' + JSON.stringify(f.at.map(a => [a.status, (a.provider_request || '').length])));
+    const exp = Number(dec(sentFirst).find(([k]) => k === 'expires_at')[1]) * 1000, payBy = Date.parse((await db(`bookings?id=eq.${f.b}&select=unpaid_expires_at`)).body[0].unpaid_expires_at);
+    const stored = (await db(`payment_attempts?id=eq.${f.at[0].id}&select=provider_expires_at`)).body[0].provider_expires_at;
+    ok('1b+. the request carries an absolute expires_at no later than the pay-by time (and no later than 23 hours away), and the same instant is stored on the reservation', exp <= payBy + 1000 && exp <= Date.now() + 23 * 3600e3 + 5000 && exp >= Date.now() + 30 * 60e3 && Date.parse(stored) === exp, JSON.stringify({ exp, payBy, stored }));
     ok('1b. that request names the two parts of the amount at the connected store', /\$20\.00 store demo fee plus \$10\.00 Demohub booking fee/.test(decodeURIComponent(sentFirst)));
     await db(`venues?id=eq.${C.venue}`, { method: 'PATCH', body: JSON.stringify({ name: 'Renamed Hall' }) });
     const n = creates().length, sessions = spy.sessions.size;
@@ -121,11 +126,12 @@ try {
   }
   {
     const f = await failedBind(C);
-    await forgetRequest(f.at[0].id);   // the session was created by the build that names the two parts (the spy still holds that body)
+    await forgetRequest(f.at[0].id);   // the session was created by the build that names the two parts
+    spy.requestsByKey.set(f.key, withoutExpiry(f.at[0].provider_request));
     const n = creates().length, sessions = spy.sessions.size;
     const r = await checkout([f.b]);
     const sent = creates().slice(n).map(c => c.body);
-    ok('4. a session created by the newer build is refused for the older shape and reached with the newer one; one session throughout', r.statusCode === 200 && sent.length === 2 && sent[1] === f.at[0].provider_request && spy.sessions.size === sessions && (await attemptsOf(f.gid))[0].status === 'open', r.statusCode + ' ' + JSON.stringify(r.body).slice(0, 160) + ' sent ' + sent.length);
+    ok('4. a session created by the newer build is refused for the older shape and reached with the newer one; one session throughout', r.statusCode === 200 && sent.length === 2 && sent[1] === withoutExpiry(f.at[0].provider_request) && spy.sessions.size === sessions && (await attemptsOf(f.gid))[0].status === 'open', r.statusCode + ' ' + JSON.stringify(r.body).slice(0, 160) + ' sent ' + sent.length);
   }
   {
     const f = await failedBind(C);
@@ -166,6 +172,7 @@ try {
     const f = await failedBind(K);
     ok('8a. at a keeps-all store the request carries no split text and is stored the same way', f.at[0].status === 'reserved' && !!f.at[0].provider_request && !/store%20demo%20fee%20plus/.test(f.at[0].provider_request));
     await forgetRequest(f.at[0].id);
+    spy.requestsByKey.set(f.key, withoutExpiry(f.at[0].provider_request));
     const n = creates().length, sessions = spy.sessions.size;
     const r = await checkout([f.b]);
     ok('8b. a pre-0125 reservation there is recovered on the first shape (both shapes are the same request)', r.statusCode === 200 && creates().length - n === 1 && spy.sessions.size === sessions, r.statusCode + ' ' + JSON.stringify(r.body).slice(0, 120));

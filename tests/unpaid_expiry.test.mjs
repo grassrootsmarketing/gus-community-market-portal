@@ -221,10 +221,23 @@ try {
     const g4 = await groupOf(r.gid);
     ok('4a. while its creation lease may still be in use the reservation blocks the group, however old it is: nothing released, attempt still reserved, no provider search', (await stateOf(r.b)).status === 'pending_payment' && (await attemptsOf(r.gid))[0].status === 'reserved' && !!g4.unpaid_expiry_started_at && !g4.unpaid_expired_at, JSON.stringify(seen && seen.body).slice(0, 200));
     const before = spy.calls.stripe.length;
-    await sweepUntil(async () => (await stateOf(r.b)).status === 'expired');
+    let last = null; for (let i = 0; i < 4; i++) { await ageAll(); last = await sweepOnce(); }
     const listed = spy.calls.stripe.slice(before).some(c => /\/v1\/checkout\/sessions\?/.test(c.url) && String(c.method).toUpperCase() === 'GET');
-    const at = await attemptsOf(r.gid);
-    ok('4b. after the grace period the provider is searched, no session is found, the reservation is failed and the booking released', listed && (await stateOf(r.b)).status === 'expired' && at[0].status === 'failed' && /no_session_found/.test(at[0].last_error || '') && (await groupOf(r.gid)).status === 'failed', JSON.stringify({ listed, at }));
+    const g4b = await groupOf(r.gid);
+    ok('4b-. after quiescence the provider is searched and nothing is found: that is NOT taken as proof. This reservation has no provider-side deadline, so it stays blocked and nothing is released', listed && (await stateOf(r.b)).status === 'pending_payment' && (await attemptsOf(r.gid))[0].status === 'reserved' && !g4b.unpaid_expired_at, JSON.stringify(last && last.body && last.body.blocked_reasons));
+    ok('4b--. the block is recorded with its reason', (await db(`payment_groups?id=eq.${r.gid}&select=unpaid_expiry_blocked_reason`)).body[0].unpaid_expiry_blocked_reason === 'blocked_unresolved_reservation');
+    // the same with a provider-side deadline that is still open, and then one that has passed
+    const open = await (async () => { const b = await bookAs(A.cookie, C); const cl = await c1.query(claimSql, [A.id, C.id, [b], false, ACCT, false]); const gid = cl.rows[0].payment_group_id; const rv = val(await rpc('reserve_payment_attempt', { p_group_id: gid, p_hash: 'h-' + uniq('h'), p_schema: 1, p_request: 'mode=payment&expires_at=1', p_expires_at: new Date(Date.now() + 40 * 60 * 1000).toISOString() })); return { b, gid, attempt: rv.attempt_id }; })();
+    await pastDeadline(open.b);
+    for (let i = 0; i < 4; i++) { await ageAll(); await sweepOnce(); }
+    const early = val(await rpc('fail_unresolved_reservation', { p_attempt_id: open.attempt }));
+    ok('4b+. a reservation whose provider-side deadline is still 40 minutes away is not ended by an empty search: blocked_provider_window, and the database refuses to fail it', (await stateOf(open.b)).status === 'pending_payment' && (await attemptsOf(open.gid))[0].status === 'reserved' && early.outcome === 'provider_window_open' && (await db(`payment_groups?id=eq.${open.gid}&select=unpaid_expiry_blocked_reason`)).body[0].unpaid_expiry_blocked_reason === 'blocked_provider_window', JSON.stringify(early));
+    const closed = await (async () => { const b = await bookAs(A.cookie, C); const cl = await c1.query(claimSql, [A.id, C.id, [b], false, ACCT, false]); const gid = cl.rows[0].payment_group_id; const rv = val(await rpc('reserve_payment_attempt', { p_group_id: gid, p_hash: 'h-' + uniq('h'), p_schema: 1, p_request: 'mode=payment&expires_at=1', p_expires_at: new Date(Date.now() - 10 * 60 * 1000).toISOString() })); return { b, gid, attempt: rv.attempt_id }; })();
+    await pastDeadline(closed.b);
+    await sweepUntil(async () => (await stateOf(closed.b)).status === 'expired');
+    const at = await attemptsOf(closed.gid);
+    r.b = closed.b; r.gid = closed.gid;
+    ok('4b. once that provider-side deadline and its margin have passed, the reservation is failed for that reason and the booking released', (await stateOf(r.b)).status === 'expired' && at[0].status === 'failed' && /provider_deadline_passed/.test(at[0].last_error || '') && (await groupOf(r.gid)).status === 'failed', JSON.stringify({ at }));
   }
   {
     // an unbound session exists on the provider for the group (created, never registered)

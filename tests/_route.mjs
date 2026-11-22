@@ -78,7 +78,7 @@ export function installSpy() {
   // the spy's own Checkout Sessions (round 7): by id (the CURRENT, mutable state a GET returns; a test changes it through
   // spy.sessions), and by the Idempotency-Key that created them (round 8, Codex R7-1: the SAVED FIRST RESPONSE, kept as
   // its serialized body exactly as Stripe keeps it; a same-key POST replays a copy of that body, never the current state).
-  const sessions = new Map(), sessionsByKey = new Map(), requestsByKey = new Map();
+  const sessions = new Map(), sessionsByKey = new Map(), requestsByKey = new Map(), clock = { offsetMs: 0 };
   // Test-only fault injection on the REAL staging passthrough AND on the spied Stripe surface. A test
   // can force a specific request (matched by url substring + optional method) to fail, so
   // failure/reconciliation paths are exercised deterministically WITHOUT any production code seam.
@@ -168,8 +168,17 @@ export function installSpy() {
           return jsonRes(JSON.parse(sessionsByKey.get(key)));
         }
         const form = Object.fromEntries(new URLSearchParams(String(opts.body || '')));
+        // 0127: like the provider, a session is not created when its expires_at is less than 30 minutes away (or more
+        // than 24 hours). `clock.offsetMs` lets a test play a request that reaches the provider late.
+        if (form.expires_at !== undefined) {
+          const left = Number(form.expires_at) * 1000 - (Date.now() + clock.offsetMs);
+          if (!(left >= 30 * 60 * 1000 && left <= 24 * 3600 * 1000)) {
+            const bad = { error: { type: 'invalid_request_error', param: 'expires_at', message: 'The `expires_at` timestamp must be between 30 minutes and 24 hours after Checkout Session creation.' } };
+            return { ok: false, status: 400, json: async () => bad, text: async () => JSON.stringify(bad) };
+          }
+        }
         let total = 0; for (const [k, v] of Object.entries(form)) if (/^line_items\[\d+\]\[price_data\]\[unit_amount\]$/.test(k)) total += Number(v) * Number(form[k.replace('[price_data][unit_amount]', '[quantity]')] || 1);
-        const created = { id: 'cs_test_' + Math.random().toString(36).slice(2, 10), object: 'checkout.session', status: 'open', payment_status: 'unpaid', mode: 'payment', amount_total: total || null, payment_intent: null, url: 'https://checkout.stripe.test/' + Math.random().toString(36).slice(2, 8), metadata: Object.fromEntries(Object.entries(form).filter(([k]) => k.startsWith('metadata[')).map(([k, v]) => [k.slice(9, -1), v])) };
+        const created = { id: 'cs_test_' + Math.random().toString(36).slice(2, 10), object: 'checkout.session', status: 'open', payment_status: 'unpaid', mode: 'payment', amount_total: total || null, payment_intent: null, url: 'https://checkout.stripe.test/' + Math.random().toString(36).slice(2, 8), expires_at: form.expires_at !== undefined ? Number(form.expires_at) : null, metadata: Object.fromEntries(Object.entries(form).filter(([k]) => k.startsWith('metadata[')).map(([k, v]) => [k.slice(9, -1), v])) };
         sessions.set(created.id, created);
         if (key) { sessionsByKey.set(key, JSON.stringify(created)); requestsByKey.set(key, String(opts.body || '')); }
         return jsonRes(JSON.parse(JSON.stringify(created)));
@@ -200,7 +209,7 @@ export function installSpy() {
     calls.other.push(u.slice(0, 120));
     return real(url, opts);
   };
-  return { calls, fixtures, faults, sessions, sessionsByKey, requestsByKey, restore: () => { globalThis.fetch = real; } };
+  return { calls, fixtures, faults, sessions, sessionsByKey, requestsByKey, clock, restore: () => { globalThis.fetch = real; } };
 }
 const jsonRes = (obj) => ({ ok: true, status: 200, json: async () => obj, text: async () => JSON.stringify(obj) });
 

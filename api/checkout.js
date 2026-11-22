@@ -17,9 +17,13 @@ const PLATFORM_FEE_CENTS = 1000;
 // Creation lease (0126, Codex return review R2). A reservation handed out by reserve_payment_attempt carries a lease of
 // unpaid_expiry_lease_seconds() = 90 s in the database. This handler sends a provider request for it only within
 // SEND_WINDOW_MS of the moment it ASKED for the reservation (its own clock, taken before the call, so it can only be
-// earlier than the database's grant) and gives the request PROVIDER_TIMEOUT_MS. Nothing can therefore be sent later
-// than 50 s after the grant, well inside the lease; expiry waits for the lease plus a settle time before it searches
-// the provider. The two numbers must stay inside the database's lease.
+// earlier than the database's grant) and gives the request PROVIDER_TIMEOUT_MS, so this handler does not START a
+// request later than 30 s after the grant and does not WAIT for one longer than 20 s. That bounds the handler only.
+// It does not bound how long the provider works on a request it received, and it assumes the runtime is not
+// suspended between the check and the request. Neither is relied on for releasing capacity: a reservation whose
+// outcome is unknown is ended only by a session found on the provider, or by the provider-side expires_at of its
+// stored request (0127). The lease exists so that expiry does not search the provider while a request is plainly
+// still on its way.
 export const SEND_WINDOW_MS = 30000, PROVIDER_TIMEOUT_MS = 20000, LEASE_SECONDS_IN_DATABASE = 90;
 
 function rest(path, opts = {}) {
@@ -74,7 +78,7 @@ export default async function handler(req, res) {
 
   try {
     const idList = ids.map(id => encodeURIComponent(id)).join(',');
-    const bookings = await sbJson(`bookings?id=in.(${idList})&select=id,brand_id,retailer_id,venue_id,demo_date,demo_time,brand_name,contact_email,status,fee_waived,booked_by_member_id`);
+    const bookings = await sbJson(`bookings?id=in.(${idList})&select=id,brand_id,retailer_id,venue_id,demo_date,demo_time,brand_name,contact_email,status,fee_waived,booked_by_member_id,unpaid_expires_at`);
     if (!Array.isArray(bookings) || bookings.length === 0) return res.status(404).json({ error: 'booking_not_found' });
     // Exact requested set, authority over the WHOLE set and one store, all before any write (Codex round 4, R3-1). The
     // ledger's claim checks ownership again under its locks; this is the handler's own refusal, so nothing below (the
@@ -224,12 +228,21 @@ export default async function handler(req, res) {
     // Codex brand-walk order item 4: the request body is BUILT here but, once an attempt is reserved, the body that is
     // SENT is the one stored on that attempt (0125). withSplit=false reproduces the body this route built before the
     // description named the two parts of the amount; it is used only to recover a reservation made before 0125.
-    const buildBody = (withSplit) => {
+    // 0127 (Codex review of 3fc5c22, item 2): every request built from now on carries an ABSOLUTE expires_at, and the
+    // same instant is stored on the reservation. It is the provider's own bound on this request: a session made from
+    // it can be paid only until then, whenever the provider gets to it, and the provider refuses to create it once
+    // that instant is under 30 minutes away. It is the group's earliest pay-by time, never under 32 minutes from now
+    // (the provider's minimum plus this handler's send window) and never over 23 hours.
+    const nowSec = Math.floor(Date.now() / 1000);
+    const deadlines = bookings.map(b => Date.parse(b.unpaid_expires_at || '')).filter(Number.isFinite).map(ms => Math.floor(ms / 1000));
+    const expiresAtSec = Math.max(nowSec + 32 * 60, Math.min(deadlines.length ? Math.min(...deadlines) : nowSec + 23 * 3600, nowSec + 23 * 3600));
+    const buildBody = (withSplit, withExpiry = true) => {
     const params = {
       mode: 'payment', 'payment_method_types[0]': 'card',
       customer_email: bookings[0].contact_email || undefined,
       'metadata[payment_group_id]': gid,
       'metadata[retailer_id]': retailerId,
+      ...(withExpiry ? { expires_at: String(expiresAtSec) } : {}),
       // R11-P0-5: do NOT put booking UUIDs in metadata, 14+ ids exceed Stripe's 500-char value
       // limit and break checkout for large carts. Fulfilment resolves allocations from the ledger
       // by payment_group_id; only a non-sensitive count is kept for at-a-glance dashboards.
@@ -340,7 +353,7 @@ export default async function handler(req, res) {
     let leaseAskedAt = 0;
     const reserve = async () => {
       leaseAskedAt = Date.now();   // before the call: never later than the database's own grant
-      const rv = await rpc('reserve_payment_attempt', { p_group_id: gid, p_hash: reqHash, p_schema: 1, p_request: bodyStr });
+      const rv = await rpc('reserve_payment_attempt', { p_group_id: gid, p_hash: reqHash, p_schema: 1, p_request: bodyStr, p_expires_at: new Date(expiresAtSec * 1000).toISOString() });
       if (!rv.ok) { const msg = String((rv.json && rv.json.message) || rv.text || ''); return { ok: false, inProgress: /attempt_in_progress/.test(msg), unpaidExpired: /unpaid_expired/.test(msg), msg }; }
       const v = Array.isArray(rv.json) ? rv.json[0] : rv.json;
       return v && v.attempt_id ? { ok: true, row: v } : { ok: false, inProgress: false, msg: 'no reservation row' };
@@ -395,7 +408,8 @@ export default async function handler(req, res) {
       // shapes this route ever sent for it are replayed in order, oldest first; if neither is the original, no other
       // payable attempt is offered and the unpaid sweep settles the reservation with the provider.
       const stored = typeof rsv.row.request === 'string' && rsv.row.request ? rsv.row.request : null;
-      const candidates = stored ? [stored] : (rsv.row.existing ? [buildBody(false), bodyStr] : [bodyStr]);
+      // the two shapes this route sent before 0125 carried no expires_at; they are reproduced exactly as they were
+      const candidates = stored ? [stored] : (rsv.row.existing ? [buildBody(false, false), buildBody(true, false)] : [bodyStr]);
       let stripeResp = null, created = null, mismatch = false;
       for (const body of candidates) {
         // R2: outside the send window the right to create a session for this reservation has lapsed. Nothing is sent;

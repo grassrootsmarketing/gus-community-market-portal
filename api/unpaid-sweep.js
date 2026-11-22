@@ -15,7 +15,9 @@
 //   open attempt, session expired    -> record it
 //   open attempt, session complete   -> NOT touched. The payment wins through the verified payment path; the group
 //                                       stays payable for it and finalize yields once it is applied.
-//   reserved attempt, no session id  -> an unknown creation outcome is not proof that no session exists. The group
+//   reserved attempt, no session id  -> (the last line of this entry is corrected below: an EMPTY search never ends a
+//                                       reservation; see "unknown provider outcome")
+//                                       an unknown creation outcome is not proof that no session exists. The group
 //                                       waits for its QUIESCENCE POINT (0126): begin fenced the group, so no creation
 //                                       lease is granted any more, and a request that was handed the reservation
 //                                       before the fence has by then sent its provider request or lost the right to.
@@ -25,9 +27,22 @@
 //                                       The reservation's own age decides nothing.
 //   anything unreadable              -> the group stays blocked ('expiring') and the next tick tries again.
 //
+// Unknown provider outcome (Codex review of 3fc5c22, item 2). A handler's timeout bounds how long the HANDLER waited;
+// it does not show that the provider stopped working on the request, and a search that finds nothing does not show
+// that nothing will appear. So for a reservation with no session:
+//   a session for the group IS found -> it is settled with the provider (expired there, or it blocks if complete); a
+//                                       key maps to one session, so that settles the reservation
+//   none is found                    -> the reservation stays blocked until the provider-side deadline carried by its
+//                                       stored request (expires_at, 0127) plus a margin has passed. After that instant
+//                                       the provider can neither take a payment for it nor create it. The database
+//                                       checks the instant itself (fail_unresolved_reservation).
+//   it has no such deadline          -> made before 0127: nothing bounds it. It stays blocked, is scheduled fairly and
+//                                       reported as a persistent block for a person to resolve. Never released here.
+//
 // Nothing is deleted. Idempotent and safe to rerun: every database step re-checks state under its own locks.
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { FLAGS } from './_flags.js';
 
 let _b = null;
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -127,8 +142,19 @@ async function expireGroupInner(gid, pNow) {
       if (st !== 'expired') return 'blocked_provider_unknown';
       recorded = recorded || sid;
     }
-    const failed = one(await rpc('fail_payment_attempt', { p_attempt_id: live.attempt_id, p_session_id: recorded, p_error: recorded ? 'unpaid_expired:session_expired' : 'unpaid_expired:no_session_found' }));
-    if (failed.outcome !== 'failed') return 'blocked_attempt_moved';   // another path moved it first; the next tick re-reads
+    if (recorded) {
+      // the session of this reservation exists and is expired on the provider: the outcome is known
+      const failed = one(await rpc('fail_payment_attempt', { p_attempt_id: live.attempt_id, p_session_id: recorded, p_error: 'unpaid_expired:session_expired' }));
+      if (failed.outcome !== 'failed') return 'blocked_attempt_moved';   // another path moved it first; the next tick re-reads
+    } else {
+      // nothing found: NOT evidence. Only the provider-side deadline of the stored request ends this reservation.
+      if (!live.provider_expires_at) return { r: 'blocked_unresolved_reservation', wait: null };
+      if (live.provider_window_closed !== true) return { r: 'blocked_provider_window', wait: Math.max(60, Number(live.seconds_to_provider_window_close) || 300) };
+      const failed = one(await rpc('fail_unresolved_reservation', { p_attempt_id: live.attempt_id, p_now: pNow }));
+      if (failed.outcome === 'provider_window_open') return { r: 'blocked_provider_window', wait: 300 };
+      if (failed.outcome === 'unbounded') return { r: 'blocked_unresolved_reservation', wait: null };
+      if (failed.outcome !== 'failed') return 'blocked_attempt_moved';
+    }
   } else if (live) {
     return 'blocked_attempt_' + String(live.status);
   }
@@ -147,6 +173,11 @@ export default async function handler(req, res) {
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
   const startMs = Date.now();
+  // The recovery switch: paused, this worker changes nothing and says so on its heartbeat (the job stays visible).
+  if (FLAGS.unpaidSweepPaused) {
+    await heartbeat('succeeded', startMs, { ok: true, paused: true });
+    return res.status(200).json({ ok: true, paused: true });
+  }
   // controlled clock for the tests only; the scheduled run always uses the database's own now()
   const override = (process.env.DEMOHUB_TEST_HOOKS === '1' && process.env.DEMOHUB_CLOCK_OVERRIDE) ? new Date(process.env.DEMOHUB_CLOCK_OVERRIDE) : null;
   const pNow = override ? override.toISOString() : null;

@@ -48,6 +48,11 @@ export const FLAGS = {
   // docs/provisional-holds.md. Off = current hard-gate + immediate-charge behavior.
   get provisionalHolds() { return exactTrue(process.env.PROVISIONAL_HOLDS_ENABLED); },
   get brandInviteEnabled() { return exactTrue(process.env.BRAND_INVITE_ENABLED); },
+  // The unpaid sweep (api/unpaid-sweep.js) runs unless this is exactly "true". It is the recovery switch for the
+  // expiry WORKER only: paused, no unpaid reservation is expired by anything, while every safe path of the same build
+  // stays in force (the booking refusal, the checkout fence and send window, the stored request, the locked release).
+  // It is never a reason to deploy an older build.
+  get unpaidSweepPaused() { return exactTrue(process.env.UNPAID_SWEEP_PAUSED); },
   // Release A: the store-contact / COI notification outbox worker (api/notification-worker.js).
   // Off = the route answers 200 {disabled:true}, writes no heartbeat, and the status probe does not
   // require the job. Turn on only after 0074 is applied and RESEND_API_KEY is bound.

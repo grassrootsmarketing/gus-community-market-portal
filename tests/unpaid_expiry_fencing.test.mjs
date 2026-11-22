@@ -195,6 +195,117 @@ try {
     ok('R2-14. the retry gets a fresh lease and creates the session under the same attempt', retry.statusCode === 200 && creates() === before + 1 && (await attemptsOf(gid)).length === 1 && (await attemptsOf(gid))[0].status === 'open', retry.statusCode + ' ' + JSON.stringify(retry.body).slice(0, 120));
   }
 
+  console.log('\nU. unknown provider outcome: a client timeout is not provider completion');
+  // fixture write on the direct connection: the provider-side deadline of a reservation, moved into the past (write-once otherwise)
+  const providerDeadlinePassed = async (attemptId) => { await c1.query('BEGIN'); await c1.query("SET LOCAL session_replication_role = 'replica'"); await c1.query("UPDATE payment_attempts SET provider_expires_at = now() - interval '10 minutes' WHERE id = $1", [attemptId]); await c1.query('COMMIT'); };
+  const blockedReason = async (gid) => (await groupOf(gid)).unpaid_expiry_blocked_reason;
+  // a checkout whose provider request times out on the client: the handler never learns what the provider did
+  async function timedOut(brand, store) {
+    const b = await book(brand, store);
+    const held = {};
+    spy.faults.push({ url: 'api.stripe.com/v1/checkout/sessions', method: 'POST', once: true, before: async (u, opts) => { held.u = u; held.opts = { method: 'POST', headers: opts.headers, body: opts.body }; const e = new Error('The operation was aborted due to timeout'); e.name = 'TimeoutError'; throw e; } });
+    const r = await checkout(brand, [b]);
+    const gid = await groupOfBooking(b);
+    return { b, gid, r, held, attempt: (await attemptsOf(gid))[0].id };
+  }
+  {
+    const o = await timedOut(A, C);
+    const at0 = (await attemptsOf(o.gid))[0];
+    const exp = (await db(`payment_attempts?id=eq.${o.attempt}&select=provider_expires_at,provider_request`)).body[0];
+    ok('U-1. the client timed out: 502, the reservation is kept with its stored request and a provider-side deadline, and nothing exists on the provider yet', o.r.statusCode === 502 && at0.status === 'reserved' && !at0.stripe_checkout_session_id && !!exp.provider_expires_at && /expires_at=\d+/.test(exp.provider_request) && [...spy.sessions.values()].every(s => !s.metadata || s.metadata.payment_group_id !== o.gid), o.r.statusCode + ' ' + JSON.stringify(o.r.body));
+    await pastDeadline(DUE, o.b);
+    const listsBefore = spy.calls.stripe.filter(c => /\/v1\/checkout\/sessions\?/.test(c.url)).length;
+    for (let i = 0; i < 4; i++) { await age(o.gid); await unpaidSweep(); }
+    const searched = spy.calls.stripe.filter(c => /\/v1\/checkout\/sessions\?/.test(c.url)).length > listsBefore;
+    ok('U-2. the worker waited out the lease, searched the provider and found NOTHING, four times over: the reservation is still reserved and the booking still holds its place', searched && (await attemptsOf(o.gid))[0].status === 'reserved' && (await stateOf(o.b)).status === 'pending_payment' && !(await groupOf(o.gid)).unpaid_expired_at && (await blockedReason(o.gid)) === 'blocked_provider_window', JSON.stringify(await groupOf(o.gid)));
+    // the provider was still working: the session appears AFTER the worker's waiting period and its empty searches
+    const late = await (await fetch(o.held.u, o.held.opts)).json();
+    ok('U-3. the provider finishes late: a payable session now exists for that same key and request', !!late.id && spy.sessions.get(late.id).status === 'open' && late.metadata.payment_group_id === o.gid, JSON.stringify(late).slice(0, 160));
+    ok('U-4. and the booking was still holding its place when it appeared: nothing had been given away', (await stateOf(o.b)).status === 'pending_payment');
+    const done = await sweepAged(o.gid, async () => (await stateOf(o.b)).status === 'expired');
+    const at = await attemptsOf(o.gid);
+    ok('U-5. the next search finds it, expires it on the provider, records it on the reservation, and only then releases the booking', done && spy.sessions.get(late.id).status === 'expired' && at.length === 1 && at[0].status === 'failed' && at[0].stripe_checkout_session_id === late.id && /session_expired/.test(at[0].last_error || ''), JSON.stringify(at));
+  }
+  {
+    // the session appears late and is PAID before the worker sees it
+    const o = await timedOut(A, C);
+    await pastDeadline(DUE, o.b);
+    for (let i = 0; i < 2; i++) { await age(o.gid); await unpaidSweep(); }
+    const late = await (await fetch(o.held.u, o.held.opts)).json();
+    Object.assign(spy.sessions.get(late.id), { status: 'complete', payment_status: 'paid' });
+    for (let i = 0; i < 3; i++) { await age(o.gid); await unpaidSweep(); }
+    ok('U-6. a late session that was paid blocks the group for a person: reservation kept, booking kept, nothing released', (await attemptsOf(o.gid))[0].status === 'reserved' && (await stateOf(o.b)).status === 'pending_payment' && !(await groupOf(o.gid)).unpaid_expired_at && (await blockedReason(o.gid)) === 'blocked_unbound_session_complete');
+  }
+  {
+    // nothing ever appears: only the provider-side deadline ends the reservation
+    const o = await timedOut(A, C);
+    await pastDeadline(DUE, o.b);
+    for (let i = 0; i < 3; i++) { await age(o.gid); await unpaidSweep(); }
+    const refused = val(await rpc('fail_unresolved_reservation', { p_attempt_id: o.attempt }));
+    ok('U-7. before the provider-side deadline the database itself refuses to end the reservation', refused.outcome === 'provider_window_open' && (await attemptsOf(o.gid))[0].status === 'reserved' && (await stateOf(o.b)).status === 'pending_payment', JSON.stringify(refused));
+    await providerDeadlinePassed(o.attempt);
+    const done = await sweepAged(o.gid, async () => (await stateOf(o.b)).status === 'expired');
+    const at = await attemptsOf(o.gid);
+    ok('U-8. once that deadline and its margin have passed (the provider can no longer create or collect on it), the reservation is failed for that reason and the booking released once', done && at[0].status === 'failed' && /provider_deadline_passed/.test(at[0].last_error || '') && !at[0].stripe_checkout_session_id && (await groupOf(o.gid)).status === 'failed', JSON.stringify(at));
+    const replay = await fetch(o.held.u, { ...o.held.opts });
+    spy.clock.offsetMs = 0;
+    ok('U-9. a replay of that request after its deadline is refused by the provider: no session can be created from it', (await (async () => { spy.clock.offsetMs = 24 * 3600e3; const r2 = await fetch(o.held.u, { ...o.held.opts, headers: { ...o.held.opts.headers, 'Idempotency-Key': 'late-' + uniq('k') } }); spy.clock.offsetMs = 0; return r2.status; })()) === 400 && !!replay);
+  }
+  {
+    // a reservation with NO provider-side deadline (made before 0127): never released on an empty search
+    const b = await book(A, C);
+    const cl = await c1.query('SELECT * FROM checkout_claim_group($1,$2,$3::uuid[],false,$4,1000,false)', [A.id, C.id, [b], ACCT]);
+    const gid = cl.rows[0].payment_group_id;
+    const rv = val(await rpc('reserve_payment_attempt', { p_group_id: gid, p_hash: 'h-legacy', p_schema: 1 }));
+    await pastDeadline(DUE, b);
+    for (let i = 0; i < 5; i++) { await age(gid); await unpaidSweep(); }
+    const unb = val(await rpc('fail_unresolved_reservation', { p_attempt_id: rv.attempt_id, p_now: new Date(Date.now() + 30 * 864e5).toISOString() }));
+    ok('U-10. a reservation with no provider-side deadline stays blocked however often the search is empty, and the database refuses to end it even a month later', (await attemptsOf(gid))[0].status === 'reserved' && (await stateOf(b)).status === 'pending_payment' && (await blockedReason(gid)) === 'blocked_unresolved_reservation' && unb.outcome === 'unbounded', JSON.stringify(unb));
+    await db(`payment_groups?id=eq.${gid}`, { method: 'PATCH', body: JSON.stringify({ unpaid_expiry_blocked_since: new Date(Date.now() - 3 * 3600e3).toISOString(), unpaid_expiry_next_check_at: null }) });
+    const loud = await unpaidSweep();
+    ok('U-11. and it is reported as a persistent block for a person, not left silent', loud.statusCode === 200 && loud.body.degraded === true && loud.body.persistent_blocked.some(p => p.group === gid && p.reason === 'blocked_unresolved_reservation'), JSON.stringify(loud.body && loud.body.persistent_blocked));
+    // put its age back to now so the fair-queue section below starts from a clean, recent state
+    await db(`payment_groups?id=eq.${gid}`, { method: 'PATCH', body: JSON.stringify({ unpaid_expiry_blocked_since: new Date().toISOString() }) });
+  }
+  {
+    // a pause AFTER the handler's clock check and BEFORE the request reaches the provider
+    const b = await book(A, C);
+    // the case where lateness matters: the pay-by time is 20 minutes away, so the request's expires_at is the 32-minute floor
+    await pastDeadline(new Date(Date.now() + 20 * 60 * 1000).toISOString(), b);
+    const sessions = spy.sessions.size;
+    spy.faults.push({ url: 'api.stripe.com/v1/checkout/sessions', method: 'POST', once: true, passthrough: true, before: async () => { spy.clock.offsetMs = 10 * 60 * 1000; } });   // it arrives 10 minutes late
+    const r = await checkout(A, [b]);
+    spy.clock.offsetMs = 0;
+    const gid = await groupOfBooking(b);
+    ok('U-12. a request that reaches the provider 10 minutes after the handler checked its clock is refused BY THE PROVIDER (its expires_at is under 30 minutes away): no session, the reservation kept', r.statusCode === 502 && spy.sessions.size === sessions && (await attemptsOf(gid))[0].status === 'reserved', r.statusCode + ' ' + JSON.stringify(r.body));
+    const exp = Date.parse((await db(`payment_attempts?payment_group_id=eq.${gid}&select=provider_expires_at`)).body[0].provider_expires_at);
+    ok('U-13. the stored deadline of that request is the 32-minute floor, so nothing made from it could be paid later than that', exp - Date.now() < 33 * 60 * 1000 && exp > Date.now() + 25 * 60 * 1000, String(exp - Date.now()));
+    const far = await book(A, C);
+    spy.faults.push({ url: 'api.stripe.com/v1/checkout/sessions', method: 'POST', once: true, passthrough: true, before: async () => { spy.clock.offsetMs = 10 * 60 * 1000; } });
+    const rf = await checkout(A, [far]);
+    spy.clock.offsetMs = 0;
+    const sFar = rf.body && rf.body.session_id ? spy.sessions.get(rf.body.session_id) : null;
+    const payByFar = Date.parse((await stateOf(far)).unpaid_expires_at);
+    ok('U-13b. with the pay-by time a day away, a request that arrives 10 minutes late does create a session, and that session carries the stored end time (no later than the pay-by time, at most 23 hours)', rf.statusCode === 200 && !!sFar && sFar.expires_at * 1000 <= payByFar && sFar.expires_at * 1000 <= Date.now() + 23 * 3600e3 + 5000, rf.statusCode + ' ' + JSON.stringify(sFar && sFar.expires_at));
+  }
+  {
+    // the pause switch: the worker changes nothing while every safe path stays in force
+    const b = await book(A, C);
+    await pastDeadline(DUE, b);
+    ENV.UNPAID_SWEEP_PAUSED = 'true';
+    const paused = await unpaidSweep();
+    const stillThere = (await stateOf(b)).status;
+    const refusedPay = await checkout(A, [b]);
+    const heldTry = await bookRaw(B, C, dayP(dayN++));
+    delete ENV.UNPAID_SWEEP_PAUSED;
+    const hb = (await db(`cron_heartbeat?cron_name=eq.unpaid-sweep&select=outcome,summary&order=ran_at.desc&limit=1`)).body || [];
+    ok('U-14. paused: the worker answers 200 paused, writes a heartbeat that says so, and expires nothing', paused.statusCode === 200 && paused.body.paused === true && stillThere === 'pending_payment', JSON.stringify(paused.body));
+    ok('U-15. paused: the safe paths are all still in force (a due booking cannot be paid, an uninsured brand cannot take a hold at a connected store)', refusedPay.statusCode === 409 && refusedPay.body.error === 'unpaid_expired' && heldTry.statusCode === 409 && heldTry.body.error === 'store_requires_insurance_on_file', refusedPay.statusCode + ' ' + heldTry.statusCode);
+    ok('U-16. and the job stays visible to monitoring while paused', hb.length === 1 && hb[0].summary && hb[0].summary.paused === true);
+    await unpaidSweep();
+    ok('U-17. unpaused, the next run picks the booking up again', (await stateOf(b)).status === 'expired');
+  }
+
   console.log('\nR1. one expiry path for an unpaid hold (keeps-all store, uninsured brand)');
   const overdueHold = (id) => db(`bookings?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ held_expires_at: new Date(Date.now() - 3600e3).toISOString() }) });
   {
@@ -306,6 +417,34 @@ try {
     await unpaidSweep();
     const wg = await groupOf(win.gid);
     ok('R3-8. when the awaited payment is applied, the group is no longer expiring or blocked and the booking is paid', wg.status === 'paid' && !wg.unpaid_expiry_started_at && !wg.unpaid_expiry_blocked_reason && !wg.unpaid_expiry_blocked_since && (await stateOf(win.b)).payment_status === 'paid', JSON.stringify(wg));
+  }
+
+  console.log('\nK. KNOWN RISK, recorded: a store cancelling an unpaid hold whose payment page is still open');
+  // This path is NOT made provider-safe by this release. It is the existing store cancellation (api/booking-action.js),
+  // which marks the booking cancelled without settling the open session first. The test pins what happens today so a
+  // later change to it is deliberate: capacity IS released while the session can still be paid, and a payment that then
+  // arrives is not applied to the cancelled booking but lands in a reconciliation case for a person.
+  {
+    const staffEmail = `staff-${K.slug}@fixture.test`;
+    await db('retailer_admins', { method: 'POST', body: JSON.stringify({ retailer_id: K.id, email: staffEmail, email_normalized: staffEmail, name: 'Fence Staff', role: 'admin' }) });
+    const tok = one(await db('admin_tokens', { method: 'POST', body: JSON.stringify({ email: staffEmail, retailer_id: K.id }) }));
+    const staff = (await callRoute('admin-auth.js', req({ body: { action: 'verify', token: tok.token } }))).cookie('dh_retailer_session');
+    const date = dayP(dayN++);
+    const h = await book(B, K, date);
+    const co = await checkout(B, [h]);
+    const sid = co.body.session_id, gid = co.body.payment_group_id;
+    const cancel = await callRoute('booking-action.js', req({ body: { action: 'cancel', category: 'store_caused', booking_id: h }, cookies: { dh_retailer_session: staff } }));
+    const st = await stateOf(h);
+    ok('K-1. today: the store\'s cancel marks the unpaid hold cancelled while its session is still open on the provider', cancel.statusCode === 200 && st.status === 'cancelled' && spy.sessions.get(sid).status === 'open', cancel.statusCode + ' ' + JSON.stringify(cancel.body).slice(0, 160) + ' ' + JSON.stringify(st));
+    const taken = await bookRaw(A, K, date);
+    ok('K-2. today: that releases the slot at once (another brand can book it) although the first session could still be paid', taken.statusCode === 200, taken.statusCode + ' ' + JSON.stringify(taken.body).slice(0, 120));
+    const retry = await checkout(B, [h]);
+    ok('K-3. the cancelled booking can not start or resume a payment through the site', retry.statusCode === 409 && !retry.body.url, retry.statusCode + ' ' + JSON.stringify(retry.body));
+    const late = val(await rpc('apply_verified_authorization', { p_session_id: sid, p_payment_intent: 'pi_known_' + uniq('p'), p_charge: 'ch_known_' + uniq('c'), p_amount: 2000, p_currency: 'usd' }));
+    const after = await stateOf(h);
+    ok('K-4. a card authorization that still arrives on that open session is NOT applied to the cancelled booking; it is recorded for a person', after.status === 'cancelled' && after.payment_status === 'unpaid' && late.outcome !== 'applied' && late.outcome !== 'authorized', JSON.stringify(late).slice(0, 300));
+    const us = await unpaidSweep();
+    ok('K-5. the unpaid sweep does not touch the cancelled booking', us.statusCode === 200 && (await stateOf(h)).status === 'cancelled');
   }
 } finally {
   clearTimeout(watchdog);
