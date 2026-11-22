@@ -4,6 +4,7 @@
 import { validateProducts, describeErrors } from './_products.js';
 import { requireBrandSession } from './_booking-identity.js';
 import { coiCovered } from './_coi-coverage.js';
+import { holdDecision, STORE_REQUIRES_INSURANCE } from './_hold-policy.js';
 import { FLAGS } from './_flags.js';
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
@@ -79,7 +80,7 @@ export default async function handler(req, res) {
   }
 
   // 2) resolve retailer + venue; venue MUST belong to that retailer and be active
-  const retailer = await one(`retailers?slug=eq.${encodeURIComponent(String(body.retailer_slug||''))}&select=id,slug,timezone,verification_status,demo_policy,cancellation_policy,cancellation_mode`);
+  const retailer = await one(`retailers?slug=eq.${encodeURIComponent(String(body.retailer_slug||''))}&select=id,slug,timezone,verification_status,demo_policy,cancellation_policy,cancellation_mode,platform_keeps_all`);
   if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
   // Go-live gate: a store Demohub has not approved takes no bookings (api/_retailer-live.js).
   if (!retailerIsLive(retailer)) return res.status(403).json(NOT_LIVE_BODY);
@@ -148,8 +149,13 @@ export default async function handler(req, res) {
   // Provisional holds (behind PROVISIONAL_HOLDS_ENABLED): a brand may book WITHOUT a verified COI,
   // the booking becomes 'held' (funds authorized, not captured) with a 24h window to get COI-verified
   // + confirmed, else the hold is released. Flag OFF = current hard gate (COI required to book).
-  const provisional = FLAGS.provisionalHolds && !cov.covered;
-  if (!cov.covered && !FLAGS.provisionalHolds) return res.status(400).json({ error: 'coi_required', reason: cov.reason });
+  // Codex brand-walk order item 1: a hold is only supported where Demohub collects the payment. At a store on the
+  // split, checkout refuses a held cart, so the booking is refused HERE, before the insert, the slot bump, any mail
+  // or any payment claim. Every creation path below (plain insert, code RPC, member RPC) runs after this line.
+  const decision = holdDecision({ holdsEnabled: FLAGS.provisionalHolds === true, keepsAll: retailer.platform_keeps_all === true, covered: cov.covered === true });
+  if (decision === 'refuse_coi') return res.status(400).json({ error: 'coi_required', reason: cov.reason });
+  if (decision === 'refuse_store') return res.status(409).json({ ...STORE_REQUIRES_INSURANCE, reason: cov.reason });
+  const provisional = decision === 'hold';
   // A provisional (held) booking exists to authorize funds while the COI is reviewed; with the fee waived there is
   // nothing to hold, and a free unreviewed booking is a different feature (not asked for). So: fee waiver needs a
   // verified COI. Short-notice-only codes work on held bookings like any other.
