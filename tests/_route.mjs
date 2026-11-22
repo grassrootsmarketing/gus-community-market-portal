@@ -78,7 +78,7 @@ export function installSpy() {
   // the spy's own Checkout Sessions (round 7): by id (the CURRENT, mutable state a GET returns; a test changes it through
   // spy.sessions), and by the Idempotency-Key that created them (round 8, Codex R7-1: the SAVED FIRST RESPONSE, kept as
   // its serialized body exactly as Stripe keeps it; a same-key POST replays a copy of that body, never the current state).
-  const sessions = new Map(), sessionsByKey = new Map();
+  const sessions = new Map(), sessionsByKey = new Map(), requestsByKey = new Map();
   // Test-only fault injection on the REAL staging passthrough AND on the spied Stripe surface. A test
   // can force a specific request (matched by url substring + optional method) to fail, so
   // failure/reconciliation paths are exercised deterministically WITHOUT any production code seam.
@@ -158,12 +158,20 @@ export function installSpy() {
       }
       if (u.includes('/checkout/sessions') && method === 'POST') {
         const key = opts.headers && (opts.headers['Idempotency-Key'] || opts.headers['idempotency-key']);
-        if (key && sessionsByKey.has(key)) return jsonRes(JSON.parse(sessionsByKey.get(key)));
+        // 0125 (Codex brand-walk order item 4): like the provider, a key is bound to the FIRST request's parameters. The
+        // same key with a different body is refused, never replayed; a spy that only replays by key hides this.
+        if (key && sessionsByKey.has(key)) {
+          if (requestsByKey.has(key) && requestsByKey.get(key) !== String(opts.body || '')) {
+            const bad = { error: { type: 'idempotency_error', message: 'Keys for idempotent requests can only be used with the same parameters they were first used with.' } };
+            return { ok: false, status: 400, json: async () => bad, text: async () => JSON.stringify(bad) };
+          }
+          return jsonRes(JSON.parse(sessionsByKey.get(key)));
+        }
         const form = Object.fromEntries(new URLSearchParams(String(opts.body || '')));
         let total = 0; for (const [k, v] of Object.entries(form)) if (/^line_items\[\d+\]\[price_data\]\[unit_amount\]$/.test(k)) total += Number(v) * Number(form[k.replace('[price_data][unit_amount]', '[quantity]')] || 1);
         const created = { id: 'cs_test_' + Math.random().toString(36).slice(2, 10), object: 'checkout.session', status: 'open', payment_status: 'unpaid', mode: 'payment', amount_total: total || null, payment_intent: null, url: 'https://checkout.stripe.test/' + Math.random().toString(36).slice(2, 8), metadata: Object.fromEntries(Object.entries(form).filter(([k]) => k.startsWith('metadata[')).map(([k, v]) => [k.slice(9, -1), v])) };
         sessions.set(created.id, created);
-        if (key) sessionsByKey.set(key, JSON.stringify(created));
+        if (key) { sessionsByKey.set(key, JSON.stringify(created)); requestsByKey.set(key, String(opts.body || '')); }
         return jsonRes(JSON.parse(JSON.stringify(created)));
       }
       if (u.includes('/checkout/sessions')) {
@@ -192,7 +200,7 @@ export function installSpy() {
     calls.other.push(u.slice(0, 120));
     return real(url, opts);
   };
-  return { calls, fixtures, faults, sessions, sessionsByKey, restore: () => { globalThis.fetch = real; } };
+  return { calls, fixtures, faults, sessions, sessionsByKey, requestsByKey, restore: () => { globalThis.fetch = real; } };
 }
 const jsonRes = (obj) => ({ ok: true, status: 200, json: async () => obj, text: async () => JSON.stringify(obj) });
 

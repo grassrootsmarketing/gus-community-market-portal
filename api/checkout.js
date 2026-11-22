@@ -200,6 +200,10 @@ export default async function handler(req, res) {
     if (allocs.some(a => a.customer_amount < 50)) return res.status(400).json({ error: 'amount_below_minimum' });
     const slug = retailer.slug || '';
 
+    // Codex brand-walk order item 4: the request body is BUILT here but, once an attempt is reserved, the body that is
+    // SENT is the one stored on that attempt (0125). withSplit=false reproduces the body this route built before the
+    // description named the two parts of the amount; it is used only to recover a reservation made before 0125.
+    const buildBody = (withSplit) => {
     const params = {
       mode: 'payment', 'payment_method_types[0]': 'card',
       customer_email: bookings[0].contact_email || undefined,
@@ -232,7 +236,7 @@ export default async function handler(req, res) {
       params[`line_items[${idx}][price_data][currency]`] = 'usd';
       params[`line_items[${idx}][price_data][unit_amount]`] = String(a.customer_amount);
       params[`line_items[${idx}][price_data][product_data][name]`] = `Demo at ${vname}`;
-      params[`line_items[${idx}][price_data][product_data][description]`] = `${bk.brand_name || ''} - ${(bk.demo_date || '')} ${(bk.demo_time || '')} (${retailer.name || ''})`.trim() + splitNote(a);
+      params[`line_items[${idx}][price_data][product_data][description]`] = `${bk.brand_name || ''} - ${(bk.demo_date || '')} ${(bk.demo_time || '')} (${retailer.name || ''})`.trim() + (withSplit ? splitNote(a) : '');
       params[`line_items[${idx}][quantity]`] = '1';
       idx++;
     }
@@ -242,8 +246,10 @@ export default async function handler(req, res) {
       params['payment_intent_data[on_behalf_of]'] = retailer.stripe_account_id;
     }
 
-    const bodyStr = Object.entries(params).filter(([, v]) => v !== undefined && v !== null)
+    return Object.entries(params).filter(([, v]) => v !== undefined && v !== null)
       .map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(String(v))).join('&');
+    };
+    const bodyStr = buildBody(true);
 
     // R10-P0-3: canonical request hash over the IMMUTABLE money-routing snapshot (sorted allocation
     // legs + charge model + connect + currency). A retry must reproduce this exact request; if the
@@ -311,7 +317,7 @@ export default async function handler(req, res) {
     };
     const jsonOutcome = (r) => { const v = Array.isArray(r.json) ? r.json[0] : r.json; return (v && v.outcome) || null; };
     const reserve = async () => {
-      const rv = await rpc('reserve_payment_attempt', { p_group_id: gid, p_hash: reqHash, p_schema: 1 });
+      const rv = await rpc('reserve_payment_attempt', { p_group_id: gid, p_hash: reqHash, p_schema: 1, p_request: bodyStr });
       if (!rv.ok) { const msg = String((rv.json && rv.json.message) || rv.text || ''); return { ok: false, inProgress: /attempt_in_progress/.test(msg), unpaidExpired: /unpaid_expired/.test(msg), msg }; }
       const v = Array.isArray(rv.json) ? rv.json[0] : rv.json;
       return v && v.attempt_id ? { ok: true, row: v } : { ok: false, inProgress: false, msg: 'no reservation row' };
@@ -356,12 +362,28 @@ export default async function handler(req, res) {
       }
       // a reservation (this caller's, or one a simultaneous caller holds): create, or replay, under its stable key
       const attemptId = rsv.row.attempt_id;
-      const stripeResp = await fetch('https://api.stripe.com/v1/checkout/sessions', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${STRIPE}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': `co-${gid}-${attemptId}` },
-        body: bodyStr,
-      });
-      let created = null; try { created = await stripeResp.json(); } catch (_) { created = null; }
+      // 0125: send the request this reservation was FIRST created with. Stripe keeps the first request for a key and
+      // refuses the key with different parameters, so a body rebuilt after a deploy or a rename could never reach a
+      // session that was created before a failed bind. A reservation from before 0125 has no stored request: the two
+      // shapes this route ever sent for it are replayed in order, oldest first; if neither is the original, no other
+      // payable attempt is offered and the unpaid sweep settles the reservation with the provider.
+      const stored = typeof rsv.row.request === 'string' && rsv.row.request ? rsv.row.request : null;
+      const candidates = stored ? [stored] : (rsv.row.existing ? [buildBody(false), bodyStr] : [bodyStr]);
+      let stripeResp = null, created = null, mismatch = false;
+      for (const body of candidates) {
+        stripeResp = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${STRIPE}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': `co-${gid}-${attemptId}` },
+          body,
+        });
+        created = null; try { created = await stripeResp.json(); } catch (_) { created = null; }
+        mismatch = !stripeResp.ok && !!(created && created.error && created.error.type === 'idempotency_error');
+        if (!mismatch) break;
+      }
+      if (mismatch) {
+        console.error('RECONCILE: reservation', attemptId, 'of group', gid, 'cannot be replayed: its original request is not known (reservation kept; the unpaid sweep settles it)');
+        return res.status(409).json({ error: 'attempt_needs_review', message: 'This payment could not be reopened automatically. Please contact support and we will sort it out.' });
+      }
       if (!stripeResp.ok || !created || !created.id) { console.error('Stripe session failed:', created && created.error); return res.status(502).json({ error: 'stripe_failed' }); }
       // the response supplied the id only; the decision is made on the session's CURRENT state
       const cur = await readSession(created.id);

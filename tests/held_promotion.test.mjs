@@ -75,8 +75,17 @@ async function mkBooker(brand, label) {
   return { memberId: member.id, email, cookie: token };
 }
 let dayN = 20;
+// Since the brand-walk order (item 1) the route refuses a held booking at a connected store before anything is written.
+// Held rows made there before that refusal still exist and still have to promote and check out correctly, so when the
+// route refuses for that reason the fixture makes such a row the only way left: the store is keeps-all while it is
+// booked, then connected again. Every other refusal still throws.
 async function bookAs(cookie, store) {
-  const bk = await callRoute('book.js', req({ body: { retailer_slug: store.slug, venue_id: store.venue, demo_date: dayP(dayN++), demo_time: '13:00', product_skus: [CATALOG[0]], op_key: ('op-' + uniq('k')).replace(/[^A-Za-z0-9_-]/g, '') }, cookies: { dh_brand_session: cookie } }));
+  const send = () => callRoute('book.js', req({ body: { retailer_slug: store.slug, venue_id: store.venue, demo_date: dayP(dayN++), demo_time: '13:00', product_skus: [CATALOG[0]], op_key: ('op-' + uniq('k')).replace(/[^A-Za-z0-9_-]/g, '') }, cookies: { dh_brand_session: cookie } }));
+  let bk = await send();
+  if (bk.statusCode === 409 && bk.body && bk.body.error === 'store_requires_insurance_on_file') {
+    await db(`retailers?id=eq.${store.id}`, { method: 'PATCH', body: JSON.stringify({ platform_keeps_all: true }) });
+    try { bk = await send(); } finally { await db(`retailers?id=eq.${store.id}`, { method: 'PATCH', body: JSON.stringify({ platform_keeps_all: false }) }); }
+  }
   const id = bk.body && (bk.body.booking_id || bk.body.id || (bk.body.booking && bk.body.booking.id));
   if (!id) throw new Error('book failed ' + bk.statusCode + ' ' + JSON.stringify(bk.body).slice(0, 200));
   return id;

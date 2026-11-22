@@ -214,10 +214,17 @@ try {
     const heldBrandId = one(await db('brands', { method: 'POST', body: JSON.stringify({ email: heldEmail, company_name: 'Held Brand', contact_name: 'Held Contact', phone: '555-0151', is_verified: true }) })).id;
     const heldTok = one(await db('brand_account_tokens', { method: 'POST', body: JSON.stringify({ brand_id: heldBrandId, email: heldEmail, token: 'tk-' + uniq('h'), expires_at: new Date(Date.now() + 36e5).toISOString() }) }));
     const heldCookie = (await callRoute('brand-account.js', req({ body: { action: 'verify', token: heldTok.token } }))).cookie('dh_brand_session');
+    // Brand-walk order item 1: the route now refuses this booking before anything is written.
+    const refusedBk = await callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: venueId, demo_date: dayP(dayN++), demo_time: '13:00', product_skus: FIXTURE_PRODUCTS }, cookies: { dh_brand_session: heldCookie } }));
+    const leftBehind = ((await db(`bookings?brand_id=eq.${heldBrandId}&select=id`)).body || []).length;
+    ok('a brand without a COI is refused at the connected store when it BOOKS: 409 store_requires_insurance_on_file, no booking row', refusedBk.statusCode === 409 && refusedBk.body.error === 'store_requires_insurance_on_file' && leftBehind === 0, `${refusedBk.statusCode} ${JSON.stringify(refusedBk.body).slice(0, 160)} rows ${leftBehind}`);
+    // A held row from before that refusal is made by the fixture (the store is keeps-all while it is booked); checkout must still refuse it.
+    await db(`retailers?id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ platform_keeps_all: true }) });
     const bk = await callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: venueId, demo_date: dayP(dayN++), demo_time: '13:00', product_skus: FIXTURE_PRODUCTS }, cookies: { dh_brand_session: heldCookie } }));
+    await db(`retailers?id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ platform_keeps_all: false }) });
     const heldId = bk.body && (bk.body.booking_id || bk.body.id || (bk.body.booking && bk.body.booking.id));
     const heldRow = heldId ? one(await db(`bookings?id=eq.${heldId}&select=status,payment_status`)) : null;
-    ok('a brand without a COI books a held booking at the connected store (provisional holds on)', bk.statusCode === 200 && heldRow && heldRow.status === 'held' && heldRow.payment_status === 'unpaid', `${bk.statusCode} ${JSON.stringify(heldRow)}`);
+    ok('a held booking that predates the refusal exists at the connected store (fixture)', bk.statusCode === 200 && heldRow && heldRow.status === 'held' && heldRow.payment_status === 'unpaid', `${bk.statusCode} ${JSON.stringify(heldRow)}`);
     const s0 = spy.calls.stripe.length;
     const co = await callRoute('checkout.js', req({ body: { booking_ids: [heldId] }, cookies: { dh_brand_session: heldCookie } }));
     ok('checkout of the held cart -> 409 store_requires_insurance_on_file with the booking id', co.statusCode === 409 && co.body.error === 'store_requires_insurance_on_file' && Array.isArray(co.body.booking_ids) && co.body.booking_ids[0] === heldId, `${co.statusCode} ${JSON.stringify(co.body).slice(0, 200)}`);
