@@ -2539,8 +2539,13 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         // unpaid demos at this store. With the list unavailable nothing is offered from the cache.
         function pendingPaidIds() {
             if (window._pendingPaidIds && window._pendingPaidIds.length) return window._pendingPaidIds.slice();
+            const cached = loadOutcomes().paid.map(o => o.id);
+            // revalidated whenever the server's list is in hand; before it arrives (or if it could not be read) the cached
+            // ids are only ever SENT to the server, which checks every one of them again under its own locks
+            const d = window._brandData;
+            if (!d || !Array.isArray(d.unpaid_bookings) || (Array.isArray(d.unavailable) && d.unavailable.includes('unpaid_bookings'))) return cached;
             const live = new Set(_earlierUnpaid().rows.map(r => String(r.id)));
-            return loadOutcomes().paid.map(o => o.id).filter(id => live.has(String(id)));
+            return cached.filter(id => live.has(String(id)));
         }
         // The server's list of this brand's unpaid demos at THIS store (api/_unpaid-view.js through the brand session).
         function _earlierUnpaid() {
@@ -3004,8 +3009,8 @@ function supportMailto(a) {
                 }
             } catch (e) { /* silent */ }
             renderBrandAuthUi();
-            try { if (typeof updateCartDisplay === 'function' && document.getElementById('cartItems')) updateCartDisplay(); } catch (_) {}   // the earlier unpaid list comes with the session
             syncUnpaidNotice();   // the signed-in account may have changed: a notice on screen is decided again for it
+            try { if (typeof updateCartDisplay === 'function' && document.getElementById('cartItems')) updateCartDisplay(); } catch (_) {}   // the earlier unpaid list comes with the session
         }
 
         function renderBrandAuthUi() {
