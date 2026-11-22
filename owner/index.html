@@ -1574,19 +1574,12 @@ function paintCoiWaiting(queue) {
   const box = document.getElementById('coiOverviewNotice');
   if (box) box.innerHTML = n ? '<div class="card" style="border-left:4px solid #c2410c;"><strong>' + n + ' certificate' + (n === 1 ? '' : 's') + ' of insurance waiting for your review</strong><div class="sub" style="margin:4px 0 10px;">A brand cannot book or pay at a new store until its certificate is approved.</div><button class="btn-sm" data-goto-tab="coi">Review in COI Review</button></div>' : '';
 }
-// A count that could not be read is said to be unknown. It is never shown as zero.
-function paintCoiWaitingUnknown() {
-  const c = document.getElementById('coiTabCount');
-  if (c) { c.textContent = '?'; c.style.display = 'inline-block'; }
-  const box = document.getElementById('coiOverviewNotice');
-  if (box) box.innerHTML = '<div class="card" style="border-left:4px solid #c2410c;"><strong>Could not check for certificates waiting for review</strong><div class="sub" style="margin:4px 0 10px;">Open COI Review to see the list.</div><button class="btn-sm" data-goto-tab="coi">Open COI Review</button></div>';
-}
 async function refreshCoiWaiting() {
   try {
     const r = await fetch('/api/admin-auth', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'owner-coi-queue' }) });
     const j = await r.json();
-    if (r.ok && Array.isArray(j.queue)) paintCoiWaiting(j.queue); else paintCoiWaitingUnknown();
-  } catch (_) { paintCoiWaitingUnknown(); }
+    if (r.ok) paintCoiWaiting(Array.isArray(j.queue) ? j.queue : []);
+  } catch (_) { /* the Overview still renders without the notice */ }
 }
 async function loadCoiQueue() {
   const el = document.getElementById('coiQueueBody');

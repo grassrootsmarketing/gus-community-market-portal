@@ -1726,7 +1726,14 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             
             cartCount.textContent = cart.length;
             demoCount.textContent = cart.length;
-            _renderEarlierUnpaid();
+            try {
+                const note = document.getElementById('earlierUnpaidNote');
+                const earlier = (window._brandProfile && typeof loadOutcomes === 'function') ? loadOutcomes().paid : [];
+                if (note) {
+                    if (earlier.length) { note.textContent = 'You also have ' + earlier.length + ' unpaid ' + (earlier.length === 1 ? 'demo' : 'demos') + ' saved from earlier' + (earlier.some(o => o.label) ? ' (' + earlier.map(o => o.label).filter(Boolean).join('; ') + ')' : '') + '. ' + (earlier.length === 1 ? 'It is' : 'They are') + ' added on the payment page, so the amount you pay there will be higher than this total.'; note.style.display = 'block'; }
+                    else { note.textContent = ''; note.style.display = 'none'; }
+                }
+            } catch (_) {}
             // Price each demo by its OWN venue fee, this MUST match what the server charges
             // (checkout-session.js bills per booking.venue.demo_fee). Using the retailer-level
             // settings.demo_fee here caused a display-vs-charge mismatch (page said $10, card hit $30).
@@ -1770,22 +1777,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 if (subLine) subLine.style.display = 'none';
                 if (trustLine) trustLine.style.display = 'none';
             }
-            // Codex brand-walk order item 6: with different fees in one cart the two lines are the SUMS of each part across
-            // the demos (never the first demo's fee for all of them). A waived demo adds nothing; a $0 store fee adds only
-            // the booking fee.
-            { const _bfLbl = _bfLine && _bfLine.querySelector('span');
-              if (!_pka && itemFees.length && new Set(itemFees).size > 1) {
-                const feeParts = itemFees.map(f => f > 0 ? PLATFORM_FEE_PER_DEMO : 0);
-                if (priceEl) priceEl.textContent = '$' + itemFees.reduce((s, f, k) => s + (f - feeParts[k]), 0).toFixed(2);
-                if (_priceLbl) _priceLbl.textContent = 'Store demo fees, all demos';
-                if (_bfEl) _bfEl.textContent = '$' + feeParts.reduce((s, f) => s + f, 0).toFixed(2);
-                if (_bfLbl) _bfLbl.textContent = 'Demohub booking fees, all demos';
-              } else if (_bfLbl) _bfLbl.textContent = 'Demohub booking fee, per demo'; }
-            // the amount shown and the amount on the button are everything this payment will charge
-            const _earlierDollars = (typeof _earlierTickedCents === 'function' ? _earlierTickedCents() : 0) / 100;
-            const _payNow = total + _earlierDollars;
-            totalPrice.textContent = '$' + _payNow.toFixed(2);
-            { const tl = totalPrice.parentElement && totalPrice.parentElement.querySelector('span'); if (tl) tl.textContent = _earlierDollars > 0 ? 'Total, with the earlier demos you ticked' : 'Total'; }
+            totalPrice.textContent = '$' + total.toFixed(2);
             
             if (cart.length === 0) {
                 cartContainer.innerHTML = '<div class="cart-empty">No demos selected yet.<br>Pick a date and time above!</div>';
@@ -1814,45 +1806,10 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 cartContainer.querySelectorAll('.cart-item-usecode').forEach(b => b.addEventListener('click', () => { if (window._bookingCode && !cart.some(it => it.recovering)) { window._bookingCode.itemId = b.dataset.itemId; updateCartDisplay(); renderCalendar(); } }));
                 const blocked = cart.some(it => it.dateStr < storeEarliestYmd() && !(_code && _code.waives_lead_time && _code.itemId === it.id));
                 checkoutBtn.disabled = blocked;
-                checkoutBtnText.textContent = blocked ? 'A demo needs a short-notice code' : (_payNow > 0 ? 'Pay & Confirm: $' + _payNow.toFixed(2) : 'Confirm booking: $0.00');
+                checkoutBtnText.textContent = blocked ? 'A demo needs a short-notice code' : (total > 0 ? 'Pay & Confirm: $' + total.toFixed(2) : 'Confirm booking: $0.00');
             }
         }
         
-        // Earlier unpaid demos at this store, from the server. Nothing is added to a payment unless the brand ticks it; a
-        // payment that was already started is resumed as its own, unchanged set.
-        function _renderEarlierUnpaid() {
-            const note = document.getElementById('earlierUnpaidNote'); if (!note) return;
-            const e = _earlierUnpaid();
-            const usd = (c) => '$' + (Number(c || 0) / 100).toFixed(2);
-            const day = (ymd) => { if (!ymd) return ''; const p = String(ymd).split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
-            const link = (id, words) => '<a href="#" data-earlier="' + escapeHtml(id) + '" style="color:inherit; font-weight:700; text-decoration:underline;">' + words + '</a>';
-            if (e.unavailable) { note.innerHTML = 'We could not check for earlier unpaid demos just now. Reload the page to see them.'; note.style.display = 'block'; return; }
-            if (!e.rows.length) { note.innerHTML = ''; note.style.display = 'none'; return; }
-            const seen = new Set(); let html = '<div style="font-weight:700; margin-bottom:4px;">Saved earlier, not paid yet</div>';
-            for (const r of e.rows) {
-                if (seen.has(r.id)) continue;
-                const what = escapeHtml(day(r.demo_date) + ' ' + (r.demo_time || '')) + (r.venue && r.venue.name ? ' &bull; ' + escapeHtml(r.venue.name) : '');
-                if (r.state === 'payment_processing' || r.state === 'window_ended' || r.state === 'expired') {
-                    // R4: these three are never payable and never tickable
-                    const members = r.in_checkout ? e.rows.filter(x => (r.group_booking_ids || []).includes(x.id)) : [r]; members.forEach(m => seen.add(m.id));
-                    const which = members.map(m => escapeHtml(day(m.demo_date) + ' ' + (m.demo_time || ''))).join('; ');
-                    html += '<div style="margin-top:6px;">' + which + ': ' + (r.state === 'payment_processing' ? 'payment received, being confirmed. Nothing more to do.' : r.state === 'window_ended' ? 'the 24 hours to pay have ended, so it can no longer be paid for and its time slot is being released. Book it again if you still want it.' : 'not paid in time, so its time slot was released. Book it again if you still want it.') + '</div>';
-                } else if (r.in_checkout) {
-                    const members = e.rows.filter(x => (r.group_booking_ids || []).includes(x.id)); members.forEach(m => seen.add(m.id));
-                    const n = (r.group_booking_ids || []).length;
-                    html += '<div style="margin-top:6px;">' + members.map(m => escapeHtml(day(m.demo_date) + ' ' + (m.demo_time || ''))).join('; ') + ': a payment of <strong>' + usd(r.group_total_cents) + '</strong> for ' + (n === 1 ? 'this demo' : 'these ' + n + ' demos') + ' was started and not finished. It is paid on its own. ' + link(r.id, 'Resume payment') + '</div>';
-                } else if (r.can_pay) {
-                    seen.add(r.id);
-                    html += '<label style="display:flex; gap:8px; align-items:flex-start; margin-top:6px; cursor:pointer;"><input type="checkbox" data-earlier-tick="' + escapeHtml(r.id) + '" ' + ((window._earlierTicked || {})[r.id] ? 'checked ' : '') + 'style="margin-top:3px;"><span>' + what + ': <strong>' + usd(r.total_cents) + '</strong> (' + usd(r.store_fee_cents) + ' store demo fee' + (r.booking_fee_cents ? ' + ' + usd(r.booking_fee_cents) + ' booking fee' : '') + '). Tick to pay for it together with the demos in your cart, or ' + link(r.id, 'pay for it now') + '.</span></label>';
-                } else {
-                    seen.add(r.id);
-                    html += '<div style="margin-top:6px;">' + what + ': waiting for your certificate of insurance to be approved before it can be paid.</div>';
-                }
-            }
-            note.innerHTML = html; note.style.display = 'block';
-            note.querySelectorAll('[data-earlier]').forEach(a => a.addEventListener('click', (ev) => { ev.preventDefault(); resumeEarlier(a, a.getAttribute('data-earlier')); }));
-            note.querySelectorAll('[data-earlier-tick]').forEach(c => c.addEventListener('change', () => toggleEarlier(c.getAttribute('data-earlier-tick'), c.checked)));
-        }
         function confirmBooking() {
             if (cart.length === 0) return;
             ['bookBrandName','bookContactName','bookContactEmail','bookContactPhone','bookCategory','bookNotes','bookPassword'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
@@ -1910,7 +1867,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 if (pwGroup) pwGroup.style.display = 'none';
                 if (title) title.textContent = 'Confirm your booking';
                 // Booking as (2026-10-17): the brand this request is made in the name of, said before anything is paid.
-                if (subtitle) subtitle.textContent = (_brandNameMissing(bp) && window._brandRole === 'booker') ? 'This brand has no name on file yet. Ask the brand account owner (' + (bp.owner_email || 'the owner') + ') to add it under Profile in the brand portal, so stores see the brand name on your demos.' : _brandNameMissing(bp) ? 'Enter your brand name below. Every demo in this request is made in that brand\'s name, under its insurance and agreements. We\'ll confirm by email.' : 'Booking as ' + bp.company_name + '. Every demo in this request is made in that brand\'s name, under its insurance and agreements. We\'ll confirm by email.';
+                if (subtitle) subtitle.textContent = _brandNameMissing(bp) ? 'Enter your brand name below. Every demo in this request is made in that brand\'s name, under its insurance and agreements. We\'ll confirm by email.' : 'Booking as ' + bp.company_name + '. Every demo in this request is made in that brand\'s name, under its insurance and agreements. We\'ll confirm by email.';
                 if (signInPrompt) signInPrompt.style.display = 'none';
                 if (submitBtn) submitBtn.textContent = 'Confirm booking';
             } else {
@@ -2074,20 +2031,12 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
                             credentials: 'same-origin', body: JSON.stringify(patch),
                         });
-                        if (!_pr.ok && patch.company_name) {
-                            // the typed name is what the store and the payment page will show: never go on as if it was saved
-                            errMsg.textContent = 'We could not save your brand name just now. Please try again in a moment.'; errMsg.style.display = 'block';
-                            return;
-                        }
                         if (_pr.ok) {
                             Object.assign(bp, patch);
                             // the name just saved is the name every line on this page shows from here on
                             if (patch.company_name && window._brandData && window._brandData.active_brand) { window._brandData.active_brand.company_name = patch.company_name; try { renderBookingFor(); } catch (_) {} }
                         }
-                    } catch (_) {
-                        if (patch.company_name) { errMsg.textContent = 'We could not save your brand name just now. Please check your connection and try again.'; errMsg.style.display = 'block'; return; }
-                        /* otherwise non-fatal, the guard below still protects the booking */
-                    }
+                    } catch (_) { /* non-fatal, the guard below still protects the booking */ }
                 }
                 if (_brandContactGateBlocks(bp)) {
                     errMsg.innerHTML = 'Add your <strong>name and phone number</strong> to your brand profile before booking. <a href="/brand/dashboard#profile" style="color:var(--forest-700); font-weight:700; text-decoration:underline;">Complete profile →</a>';
@@ -2313,9 +2262,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             if (window._bookingCode && !cart.some(it => it.id === window._bookingCode.itemId)) { if (freeCount || results.some(r => r.json && r.json.code_applied)) resetBookingCodeUi(); }
             updateCartDisplay(); renderLocationSwitcher();
             // Codex review 2 item 2: what is saved is tracked independently of the cart; payment retries use it.
-            // Codex brand-walk order item 3: the payment is for the demos this submission just saved plus the earlier unpaid
-            // demos the brand TICKED in the cart, re-checked against the server's list. The cache no longer decides the set.
-            const saved = loadOutcomes(); const unpaid = [...new Set(successBookingIds.concat(_earlierTickedIds()))];
+            const saved = loadOutcomes(); const unpaid = saved.paid.map(o => o.id);
             if (!okAll) {
                 const uniq = [...new Set(errors)];
                 const kept = (saved.free.length ? saved.free.length + ' free ' + (saved.free.length === 1 ? 'demo is' : 'demos are') + ' submitted and awaiting confirmation. ' : '') + (unpaid.length ? unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid. ' : '');
@@ -2340,8 +2287,6 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 return;
             }
             window._pendingPaidIds = unpaid;
-            // what was just saved is on the server's unpaid list now: refresh it so the cart shows it if payment does not open
-            try { loadBrandAccountSession(); } catch (_) {}
             // Phase B: try to collect payment via Stripe Checkout for the whole batch.
             // If the retailer isn't Stripe-connected, the endpoint returns { skip: true }
             // and we fall through to the current success modal.
@@ -2447,9 +2392,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         // ---- Saved outcomes (Codex review 2 item 2) and recovery entries (item 1), independent of the cart, kept in
         // sessionStorage for this tab (booking ids, labels, the frozen request; no secrets, no extra personal data).
         // (a function: RETAILER_SLUG is declared further down this script, so it must not be read at load time)
-        // Codex brand-walk order item 3: the cache is scoped to the brand AND the store. Another brand signing in on this
-        // browser reads an empty cache, and nothing is cached under a brand before the session is known.
-        const outcomesKey = () => 'dh_outcomes_' + (location.pathname.split('/')[2] || '') + '_' + ((window._brandProfile && window._brandProfile.id != null) ? String(window._brandProfile.id) : 'anon');
+        const outcomesKey = () => 'dh_outcomes_' + (location.pathname.split('/')[2] || '');
         function loadOutcomes() { try { const o = JSON.parse(sessionStorage.getItem(outcomesKey()) || 'null'); if (o && Array.isArray(o.paid) && Array.isArray(o.free) && Array.isArray(o.recovery)) return o; } catch (_) {} return { paid: [], free: [], recovery: [] }; }
         function saveOutcomes(o) { try { sessionStorage.setItem(outcomesKey(), JSON.stringify(o)); } catch (_) {} }
         function addOutcome(kind, id, label) { if (!id) return; const o = loadOutcomes(); if (!o[kind].some(x => x.id === id)) o[kind].push({ id, label }); saveOutcomes(o); }
@@ -2540,44 +2483,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             } catch (_) { return null; }
         }
         // the unpaid demos this tab is asking to pay for right now (a copy, so later page changes cannot alter a request)
-        // After a reload the cached ids are only a hint: they are kept only while the server still lists them as this brand's
-        // unpaid demos at this store. With the list unavailable nothing is offered from the cache.
-        function pendingPaidIds() {
-            if (window._pendingPaidIds && window._pendingPaidIds.length) return window._pendingPaidIds.slice();
-            const cached = loadOutcomes().paid.map(o => o.id);
-            // revalidated whenever the server's list is in hand; before it arrives (or if it could not be read) the cached
-            // ids are only ever SENT to the server, which checks every one of them again under its own locks
-            const d = window._brandData;
-            if (!d || !Array.isArray(d.unpaid_bookings) || (Array.isArray(d.unavailable) && d.unavailable.includes('unpaid_bookings'))) return cached;
-            const live = new Set(_earlierUnpaid().rows.map(r => String(r.id)));
-            return cached.filter(id => live.has(String(id)));
-        }
-        // The server's list of this brand's unpaid demos at THIS store (api/_unpaid-view.js through the brand session).
-        function _earlierUnpaid() {
-            const d = window._brandData, slug = location.pathname.split('/')[2] || '';
-            if (!d || !window._brandProfile) return { rows: [], unavailable: false };
-            if (Array.isArray(d.unavailable) && d.unavailable.includes('unpaid_bookings')) return { rows: [], unavailable: true };
-            return { rows: (Array.isArray(d.unpaid_bookings) ? d.unpaid_bookings : []).filter(r => r && r.retailer && r.retailer.slug === slug), unavailable: false };
-        }
-        // ticked AND still offered: not yet in a payment group, payable, and on the server's list right now
-        function _earlierOffered() { return _earlierUnpaid().rows.filter(r => !r.in_checkout && r.can_pay && ['awaiting_payment', 'awaiting_coi'].includes(r.state) && (window._earlierTicked || {})[r.id]); }
-        function _earlierTickedIds() { return _earlierOffered().map(r => r.id); }
-        function _earlierTickedCents() { return _earlierOffered().reduce((s, r) => s + Number(r.total_cents || 0), 0); }
-        function toggleEarlier(id, on) { window._earlierTicked = window._earlierTicked || {}; window._earlierTicked[id] = !!on; updateCartDisplay(); }
-        async function resumeEarlier(a, id) {
-            const label = a.textContent; a.textContent = 'Opening payment…';
-            try {
-                const r = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ resume_booking_id: id }) });
-                const j = await r.json().catch(() => ({}));
-                if (r.ok && j.url) { window.location.assign(j.url); return false; }
-                const words = { payment_pending: 'This payment is being confirmed. Reload in a moment.', unpaid_expired: 'The 24 hours to pay have ended, so this demo can no longer be paid for. Please book it again.', not_payable_state: 'This demo can no longer be paid for. Reload the page.' };
-                const final = j.message || words[j.error] || checkoutRefusalText(j);
-                a.textContent = final || 'Payment could not be opened. Click to try again.';
-                if (final) { a.removeAttribute('href'); a.onclick = null; a.removeAttribute('onclick'); a.style.textDecoration = 'none'; a.style.cursor = 'default'; }
-            } catch (_) { a.textContent = label; }
-            return false;
-        }
-        window.toggleEarlier = toggleEarlier; window.resumeEarlier = resumeEarlier;
+        function pendingPaidIds() { return (window._pendingPaidIds && window._pendingPaidIds.length) ? window._pendingPaidIds.slice() : loadOutcomes().paid.map(o => o.id); }
         // What the unpaid notice may offer. url: the saved link that matches this customer and these demos. retry: no such
         // link, but a signed-in customer came back from Stripe with saved unpaid demos, so the server can be asked again.
         function unpaidNoticePlan(fromCancel) {
@@ -2593,7 +2499,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         // one; its own wording here for the one refusal that carries none (online payment switched off for this store).
         function checkoutRefusalText(j) {
             const code = j && j.error;
-            if (['unpaid_expired', 'store_requires_insurance_on_file', 'store_not_payout_ready', 'connected_checkout_unavailable_pilot', 'provisional_holds_disabled', 'booking_state_changed', 'held_recheck_failed'].includes(code) && j.message) return j.message;
+            if (['store_requires_insurance_on_file', 'store_not_payout_ready', 'connected_checkout_unavailable_pilot', 'provisional_holds_disabled', 'booking_state_changed', 'held_recheck_failed'].includes(code) && j.message) return j.message;
             if (code === 'connected_checkout_unavailable_pilot') return 'Online payment is not available at this store right now. Please contact the store.';
             return '';
         }
@@ -3015,7 +2921,6 @@ function supportMailto(a) {
             } catch (e) { /* silent */ }
             renderBrandAuthUi();
             syncUnpaidNotice();   // the signed-in account may have changed: a notice on screen is decided again for it
-            try { if (typeof updateCartDisplay === 'function' && document.getElementById('cartItems')) updateCartDisplay(); } catch (_) {}   // the earlier unpaid list comes with the session
         }
 
         function renderBrandAuthUi() {
