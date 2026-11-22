@@ -835,9 +835,10 @@ export default async function handler(req, res) {
       // is released (0123). A failed read is reported as unavailable; it is never shown as "nothing to pay".
       let unpaid_bookings = [];
       try {
-        const ur = await sb(`bookings?brand_id=eq.${brandId}&payment_status=eq.unpaid&status=in.(pending_payment,held)&select=id,retailer_id,venue_id,product,demo_date,demo_time,status,payment_status,unpaid_expires_at,created_at,booked_by_member_id,fee_waived,retailers(id,name,slug,platform_keeps_all),venues(id,name,demo_fee)&order=unpaid_expires_at.asc&limit=200`);
+        const ur = await sb(`bookings?brand_id=eq.${brandId}&payment_status=eq.unpaid&or=(status.in.(pending_payment,held),and(status.eq.expired,unpaid_expires_at.gte.${encodeURIComponent(new Date(Date.now() - 7 * 864e5).toISOString())}))&select=id,retailer_id,venue_id,product,demo_date,demo_time,status,payment_status,unpaid_expires_at,created_at,booked_by_member_id,fee_waived,retailers(id,name,slug,platform_keeps_all),venues(id,name,demo_fee)&order=unpaid_expires_at.asc&limit=200`);
         const rows = await readList(ur, 'unpaid_bookings');
-        let allocs = [];
+        let allocs = [], groups = [];
+        const processingGroups = new Set();
         if (rows.length) {
           const own = await sb(`payment_allocations?booking_id=in.(${rows.map(r => encodeURIComponent(r.id)).join(',')})&select=booking_id,payment_group_id,customer_amount,platform_fee_amount`);
           const ownRows = own.ok ? await own.json() : null;
@@ -848,9 +849,28 @@ export default async function handler(req, res) {
             const all = await sb(`payment_allocations?payment_group_id=in.(${gids.map(encodeURIComponent).join(',')})&select=booking_id,payment_group_id,customer_amount,platform_fee_amount`);
             const allRows = all.ok ? await all.json() : null;
             if (Array.isArray(allRows)) allocs = allRows; else if (!unavailable.includes('unpaid_bookings')) unavailable.push('unpaid_bookings');
+            // R4: the group's own state (has expiry begun) and, for a group with an open session, what the PROVIDER says
+            // about that session right now. A session that is paid or complete while the ledger has not applied it yet is
+            // 'payment processing', never 'pay now'. A provider read that fails decides nothing: the state then comes from
+            // the ledger alone and the resume route still refuses a second payment.
+            const gr = await sb(`payment_groups?id=in.(${gids.map(encodeURIComponent).join(',')})&select=id,status,unpaid_expiry_started_at,unpaid_expired_at`);
+            const grRows = gr.ok ? await gr.json() : null;
+            if (Array.isArray(grRows)) groups = grRows; else if (!unavailable.includes('unpaid_bookings')) unavailable.push('unpaid_bookings');
+            const at = await sb(`payment_attempts?payment_group_id=in.(${gids.map(encodeURIComponent).join(',')})&status=eq.open&select=payment_group_id,stripe_checkout_session_id&limit=8`);
+            const atRows = at.ok ? await at.json() : [];
+            const key = process.env.STRIPE_SECRET_KEY;
+            if (key && Array.isArray(atRows)) {
+              await Promise.all(atRows.filter(a => a && a.stripe_checkout_session_id).slice(0, 8).map(async (a) => {
+                try {
+                  const r = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(a.stripe_checkout_session_id)}`, { headers: { Authorization: `Bearer ${key}` }, signal: globalThis.AbortSignal.timeout(4000) });
+                  const s = r.ok ? await r.json() : null;
+                  if (s && (String(s.status) === 'complete' || String(s.payment_status) === 'paid')) processingGroups.add(String(a.payment_group_id));
+                } catch (_) { /* unknown: decided from the ledger */ }
+              }));
+            }
           }
         }
-        unpaid_bookings = unavailable.includes('unpaid_bookings') ? [] : unpaidView({ bookings: rows, allocations: allocs, brand: profileRaw, role: ctx.role === ROLES.BOOKER ? 'booker' : 'owner', memberId: ctx.memberId });
+        unpaid_bookings = unavailable.includes('unpaid_bookings') ? [] : unpaidView({ bookings: rows, allocations: allocs, groups, processingGroups, brand: profileRaw, role: ctx.role === ROLES.BOOKER ? 'booker' : 'owner', memberId: ctx.memberId });
       } catch (e) { console.warn('unpaid bookings lookup failed:', (e && e.message) || e); if (!unavailable.includes('unpaid_bookings')) unavailable.push('unpaid_bookings'); unpaid_bookings = []; }
       // 0094: a retailer-initiated move awaiting this brand's answer rides on the demo as pending_move
       // (id, deadline, old slot, note), so the dashboard can show Confirm / Can't make it.

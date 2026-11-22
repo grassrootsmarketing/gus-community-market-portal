@@ -98,9 +98,19 @@ async function pastDeadline(...ids) {
   await c1.query('COMMIT');
 }
 // run the worker until `done()` is true (the practice database can hold other due rows; a run handles 25)
-async function sweepUntil(done, max = 12) {
+// Time passing, for the fixtures of this suite only (0126): a group whose expiry has begun is moved past its quiescence
+// point (the fence is backdated, its creation leases are in the past, its next-check time is cleared). Without this a
+// group needs lease + settle (150 s) of real time between begin and finalize, which tests/unpaid_expiry_fencing.test.mjs
+// proves on purpose; here the other rules are under test.
+async function ageAll() {
+  const ids = ((await db(`payment_groups?retailer_id=in.(${K.id},${C.id})&unpaid_expired_at=is.null&select=id`)).body || []).map(g => g.id);
+  if (!ids.length) return;
+  await db(`payment_groups?id=in.(${ids.join(',')})&unpaid_expiry_started_at=not.is.null`, { method: 'PATCH', body: JSON.stringify({ unpaid_expiry_started_at: '2001-01-02T00:00:00Z', unpaid_expiry_next_check_at: null }) });
+  await db(`payment_attempts?payment_group_id=in.(${ids.join(',')})&create_lease_until=not.is.null`, { method: 'PATCH', body: JSON.stringify({ create_lease_until: '2001-01-02T00:00:00Z' }) });
+}
+async function sweepUntil(done, max = 14) {
   let last = null;
-  for (let i = 0; i < max; i++) { last = await callRoute('unpaid-sweep.js', req({ body: {}, headers: CRON })); if (await done(last)) return last; }
+  for (let i = 0; i < max; i++) { await ageAll(); last = await callRoute('unpaid-sweep.js', req({ body: {}, headers: CRON })); if (await done(last)) return last; }
   return last;
 }
 const sweepOnce = () => callRoute('unpaid-sweep.js', req({ body: {}, headers: CRON }));
@@ -203,9 +213,13 @@ try {
   {
     const r = await reservedGroup(C);
     await pastDeadline(r.b);
-    await sweepUntil(async () => !!(await groupOf(r.gid)).unpaid_expiry_started_at);
-    ok('4a. inside the grace period the reservation blocks the group: nothing released, attempt still reserved', (await stateOf(r.b)).status === 'pending_payment' && (await attemptsOf(r.gid))[0].status === 'reserved' && !(await groupOf(r.gid)).unpaid_expired_at);
+    // an OLD reservation (first made 40 minutes ago) that was just handed out again: its age decides nothing, its lease does
     await db(`payment_attempts?id=eq.${r.attempt}`, { method: 'PATCH', body: JSON.stringify({ reserved_at: new Date(Date.now() - 40 * 60 * 1000).toISOString() }) });
+    let seen = null;
+    for (let i = 0; i < 6 && !(await groupOf(r.gid)).unpaid_expiry_started_at; i++) seen = await sweepOnce();
+    seen = await sweepOnce();
+    const g4 = await groupOf(r.gid);
+    ok('4a. while its creation lease may still be in use the reservation blocks the group, however old it is: nothing released, attempt still reserved, no provider search', (await stateOf(r.b)).status === 'pending_payment' && (await attemptsOf(r.gid))[0].status === 'reserved' && !!g4.unpaid_expiry_started_at && !g4.unpaid_expired_at, JSON.stringify(seen && seen.body).slice(0, 200));
     const before = spy.calls.stripe.length;
     await sweepUntil(async () => (await stateOf(r.b)).status === 'expired');
     const listed = spy.calls.stripe.slice(before).some(c => /\/v1\/checkout\/sessions\?/.test(c.url) && String(c.method).toUpperCase() === 'GET');
@@ -278,7 +292,10 @@ try {
     await c1.query('COMMIT');
     const rv = await pending;
     ok('8a. begin holds the group; the reservation waits and is then refused unpaid_expired; no attempt was created', beg.rows[0].r.outcome === 'expiring' && !rv.ok && /unpaid_expired/.test(String(rv.e && rv.e.message)) && (await attemptsOf(gid)).length === 0, JSON.stringify({ beg: beg.rows[0].r, rv: rv.ok ? rv.r.rows : String(rv.e.message) }));
-    const fin = val(await rpc('finalize_unpaid_group_expiry', { p_group_id: gid }));
+    const early = val(await rpc('finalize_unpaid_group_expiry', { p_group_id: gid }));
+    const stillHeld = (await stateOf(b)).status;
+    const fin = val(await rpc('finalize_unpaid_group_expiry', { p_group_id: gid, p_now: new Date(Date.now() + 10 * 60 * 1000).toISOString() }));
+    ok('8b-. with no attempt at all, finalize still refuses before the quiescence point measured from the fence', early.outcome === 'not_quiescent' && stillHeld === 'pending_payment', JSON.stringify(early));
     ok('8b. finalize then releases it once', fin.outcome === 'expired' && fin.released.length === 1 && (await stateOf(b)).status === 'expired', JSON.stringify(fin));
   }
   {

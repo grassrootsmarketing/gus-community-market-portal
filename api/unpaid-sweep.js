@@ -15,11 +15,14 @@
 //   open attempt, session expired    -> record it
 //   open attempt, session complete   -> NOT touched. The payment wins through the verified payment path; the group
 //                                       stays payable for it and finalize yields once it is applied.
-//   reserved attempt, no session id  -> an unknown creation outcome is not proof that no session exists. After a grace
-//                                       period (no request can still be in flight) Stripe is searched for sessions of
-//                                       this group. Open ones are expired first; a complete one blocks the group for
-//                                       the operator; only when every session found is expired, or none exists, is the
-//                                       reservation recorded as failed.
+//   reserved attempt, no session id  -> an unknown creation outcome is not proof that no session exists. The group
+//                                       waits for its QUIESCENCE POINT (0126): begin fenced the group, so no creation
+//                                       lease is granted any more, and a request that was handed the reservation
+//                                       before the fence has by then sent its provider request or lost the right to.
+//                                       Only then is Stripe searched for sessions of this group. Open ones are expired
+//                                       first; a complete one blocks the group for the operator; only when every
+//                                       session found is expired, or none exists, is the reservation recorded failed.
+//                                       The reservation's own age decides nothing.
 //   anything unreadable              -> the group stays blocked ('expiring') and the next tick tries again.
 //
 // Nothing is deleted. Idempotent and safe to rerun: every database step re-checks state under its own locks.
@@ -31,8 +34,9 @@ const CRON_SECRET = process.env.CRON_SECRET;
 const STRIPE = process.env.STRIPE_SECRET_KEY;
 const BATCH = 25;
 const CRON_NAME = 'unpaid-sweep';
-// a reservation younger than this may still have its create request in flight (functions time out well before it)
-export const RESERVATION_GRACE_MS = 15 * 60 * 1000;
+// A group blocked longer than this is reported as a failed run on the heartbeat (the status page then shows the job as
+// not healthy) even though the request itself answers 200: the worker ran, but expiry is not progressing.
+export const PERSISTENT_BLOCK_MINUTES = 120;
 const MAX_LIST_PAGES = 10;
 
 async function rpc(fn, args) {
@@ -93,8 +97,13 @@ async function findGroupSessions(gid, sinceSec) {
   return null;   // more pages than this worker reads: unknown, never "none"
 }
 
-// One group, steps 1 to 3. Returns a short word for the summary; throws only on a database error.
-async function expireGroup(gid, pNow, nowMs) {
+// One group, steps 1 to 3. Returns { r: a short word for the summary, wait: seconds until it is worth looking again,
+// when known }; throws only on a database error.
+async function expireGroup(gid, pNow) {
+  const w = await expireGroupInner(gid, pNow);
+  return typeof w === 'string' ? { r: w, wait: null } : w;
+}
+async function expireGroupInner(gid, pNow) {
   const begun = one(await rpc('begin_unpaid_group_expiry', { p_group_id: gid, p_now: pNow }));
   if (begun.outcome !== 'expiring') return begun.outcome === 'not_open' ? 'payment_won' : (begun.outcome || 'skipped');
   const live = begun.live_attempt;
@@ -105,8 +114,10 @@ async function expireGroup(gid, pNow, nowMs) {
     if (st !== 'expired') return 'blocked_provider_unknown';
     await rpc('expire_payment_attempt', { p_session_id: live.session_id });
   } else if (live && live.status === 'reserved') {
+    // R2: not before the quiescence point the database computed under the group lock
+    if (begun.quiescent !== true) return { r: 'blocked_creation_lease', wait: Math.max(15, Number(begun.seconds_to_quiescent) || 60) };
     const since = Date.parse(live.reserved_at || live.created_at || '');
-    if (!Number.isFinite(since) || nowMs - since < RESERVATION_GRACE_MS) return 'blocked_reservation_in_grace';
+    if (!Number.isFinite(since)) return 'blocked_provider_unknown';
     const sessions = await findGroupSessions(gid, since / 1000 - 300);
     if (sessions === null) return 'blocked_provider_unknown';
     let recorded = null;
@@ -124,7 +135,8 @@ async function expireGroup(gid, pNow, nowMs) {
   const fin = one(await rpc('finalize_unpaid_group_expiry', { p_group_id: gid, p_now: pNow }));
   if (fin.outcome === 'expired') return 'expired';
   if (fin.outcome === 'payment_won') return 'payment_won';
-  if (fin.outcome === 'attempt_live') return 'blocked_attempt_live';
+  if (fin.outcome === 'attempt_live') return { r: 'blocked_attempt_live', wait: 60 };
+  if (fin.outcome === 'not_quiescent') return { r: 'blocked_not_quiescent', wait: 60 };
   return fin.outcome || 'skipped';
 }
 
@@ -138,7 +150,6 @@ export default async function handler(req, res) {
   // controlled clock for the tests only; the scheduled run always uses the database's own now()
   const override = (process.env.DEMOHUB_TEST_HOOKS === '1' && process.env.DEMOHUB_CLOCK_OVERRIDE) ? new Date(process.env.DEMOHUB_CLOCK_OVERRIDE) : null;
   const pNow = override ? override.toISOString() : null;
-  const nowMs = override ? override.getTime() : Date.now();
   const out = { ok: true, scanned: 0, expired_bookings: 0, expired_groups: 0, payment_won: 0, blocked: 0, skipped: 0, errors: 0, blocked_reasons: {} };
   let firstError = null;
   try {
@@ -148,10 +159,15 @@ export default async function handler(req, res) {
       try {
         if (d.payment_group_id) {
           if (!STRIPE) { out.blocked++; out.blocked_reasons.no_provider_key = (out.blocked_reasons.no_provider_key || 0) + 1; continue; }
-          const r = await expireGroup(d.payment_group_id, pNow, nowMs);
+          const { r, wait } = await expireGroup(d.payment_group_id, pNow);
           if (r === 'expired') out.expired_groups++;
           else if (r === 'payment_won') out.payment_won++;
-          else if (/^blocked_/.test(r)) { out.blocked++; out.blocked_reasons[r] = (out.blocked_reasons[r] || 0) + 1; console.warn('unpaid-sweep: group', d.payment_group_id, r); }
+          else if (/^blocked_/.test(r)) {
+            out.blocked++; out.blocked_reasons[r] = (out.blocked_reasons[r] || 0) + 1; console.warn('unpaid-sweep: group', d.payment_group_id, r);
+            // R3: the group gets a next-check time (the known wait, else a backoff), its reason and its age; it is left
+            // out of the queue until then, so it cannot crowd out the work behind it
+            await rpc('note_unpaid_group_blocked', { p_group_id: d.payment_group_id, p_reason: r, p_retry_seconds: wait, p_now: pNow });
+          }
           else out.skipped++;
         } else {
           const r = one(await rpc('expire_unpaid_booking', { p_booking_id: d.booking_id, p_now: pNow }));
@@ -163,7 +179,22 @@ export default async function handler(req, res) {
         console.error('unpaid-sweep error for', d.payment_group_id || d.booking_id, (e && e.message) || e);
       }
     }
+    // R3: what is blocked right now, whether or not this tick looked at it
+    try {
+      const bl = await rpc('unpaid_expiry_blocked', { p_now: pNow }) || [];
+      out.blocked_total = bl.length;
+      out.oldest_blocked_minutes = bl.length ? Math.max(...bl.map(b => Number(b.blocked_minutes) || 0)) : 0;
+      out.persistent_blocked = bl.filter(b => (Number(b.blocked_minutes) || 0) >= PERSISTENT_BLOCK_MINUTES).map(b => ({ group: b.payment_group_id, reason: b.reason, minutes: b.blocked_minutes, checks: b.blocked_count }));
+    } catch (e) { out.errors++; if (!firstError) firstError = 'blocked list: ' + String((e && e.message) || e).slice(0, 160); }
     console.log('unpaid-sweep:', JSON.stringify(out));
+    if (out.errors === 0 && out.persistent_blocked && out.persistent_blocked.length) {
+      // the worker ran and every step it took was sound, but expiry is NOT progressing for these groups: the heartbeat
+      // says so (the status page turns the job unhealthy) while the request still answers 200
+      console.error('unpaid-sweep: PERSISTENT BLOCK', JSON.stringify(out.persistent_blocked));
+      out.degraded = true;
+      await heartbeat('failed', startMs, { ...out, reason: 'persistent_blocked' });
+      return res.status(200).json(out);
+    }
     if (out.errors === 0) { await heartbeat('succeeded', startMs, out); return res.status(200).json(out); }
     out.ok = false;
     await heartbeat('failed', startMs, { ...out, partial: true, first_error: firstError });

@@ -8,10 +8,9 @@
 //                                   expiry. (The Stripe auth itself dies at ~7d worst-case.)
 //   - authorized (auth placed)   -> cancel the PI ($0 charged, $0 fee), converge the ledger via
 //                                   apply_authorization_canceled, email "hold released".
-//   - unpaid, no open attempt    -> never finished checkout: just flip to 'expired' (frees slot).
-//   - unpaid, open attempt       -> mid-checkout: skip; Stripe's own 24h Session expiry +
-//                                   checkout.session.expired terminalizes the attempt, and the next
-//                                   sweep tick expires the booking.
+//   - unpaid (never authorized)  -> NOT handled here. bookings.unpaid_expires_at governs it and api/unpaid-sweep.js
+//                                   releases it through the locked protocol, after settling any attempt with the
+//                                   provider (Codex return review R1). held_expires_at governs authorized holds only.
 //
 // Idempotent + safe to rerun: every mutation is guarded on current state, and a failed Stripe
 // cancel leaves the booking held for the next tick.
@@ -59,7 +58,7 @@ export default async function handler(req, res) {
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
   const startMs = Date.now();
-  const out = { ok: true, scanned: 0, released: 0, expired_unpaid: 0, skipped_covered: 0, skipped_in_checkout: 0, errors: 0 };
+  const out = { ok: true, scanned: 0, released: 0, left_to_unpaid_sweep: 0, skipped_covered: 0, errors: 0 };
   let firstError = null;   // F-03: first per-booking error for the failed heartbeat (truncated, no PII)
   const noteError = (msg) => { if (!firstError) firstError = String(msg || 'unknown_error').slice(0, 200); };
   try {
@@ -88,17 +87,11 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // unpaid: only expire when no open payment attempt (i.e. not mid-checkout)
-        const atts = await sb(`payment_allocations?booking_id=eq.${encodeURIComponent(b.id)}&select=payment_group_id`) || [];
-        let hasOpenAttempt = false;
-        if (atts.length) {
-          const gids = [...new Set(atts.map(a => a.payment_group_id))];
-          const open = await sb(`payment_attempts?payment_group_id=in.(${gids.map(encodeURIComponent).join(',')})&status=eq.open&select=id&limit=1`) || [];
-          hasOpenAttempt = open.length > 0;
-        }
-        if (hasOpenAttempt) { out.skipped_in_checkout++; continue; }
-        await sb(`bookings?id=eq.${encodeURIComponent(b.id)}&status=eq.held`, { method: 'PATCH', body: JSON.stringify({ status: 'expired' }) });
-        out.expired_unpaid++;
+        // Codex return review R1: an UNPAID held booking is not this sweep's to expire. Its deadline is
+        // bookings.unpaid_expires_at and its only way out is the unpaid sweep's locked protocol (0123, 0126), which
+        // settles any attempt with the provider first. This sweep used to read for an open attempt and then PATCH the
+        // row: a second, unlocked expiry path that ignored reserved attempts and raced a checkout. It is gone.
+        out.left_to_unpaid_sweep++;
       } catch (e) {
         out.errors++;
         noteError((e && e.message) || e);

@@ -1832,7 +1832,12 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             for (const r of e.rows) {
                 if (seen.has(r.id)) continue;
                 const what = escapeHtml(day(r.demo_date) + ' ' + (r.demo_time || '')) + (r.venue && r.venue.name ? ' &bull; ' + escapeHtml(r.venue.name) : '');
-                if (r.in_checkout) {
+                if (r.state === 'payment_processing' || r.state === 'window_ended' || r.state === 'expired') {
+                    // R4: these three are never payable and never tickable
+                    const members = r.in_checkout ? e.rows.filter(x => (r.group_booking_ids || []).includes(x.id)) : [r]; members.forEach(m => seen.add(m.id));
+                    const which = members.map(m => escapeHtml(day(m.demo_date) + ' ' + (m.demo_time || ''))).join('; ');
+                    html += '<div style="margin-top:6px;">' + which + ': ' + (r.state === 'payment_processing' ? 'payment received, being confirmed. Nothing more to do.' : r.state === 'window_ended' ? 'the 24 hours to pay have ended, so it can no longer be paid for and its time slot is being released. Book it again if you still want it.' : 'not paid in time, so its time slot was released. Book it again if you still want it.') + '</div>';
+                } else if (r.in_checkout) {
                     const members = e.rows.filter(x => (r.group_booking_ids || []).includes(x.id)); members.forEach(m => seen.add(m.id));
                     const n = (r.group_booking_ids || []).length;
                     html += '<div style="margin-top:6px;">' + members.map(m => escapeHtml(day(m.demo_date) + ' ' + (m.demo_time || ''))).join('; ') + ': a payment of <strong>' + usd(r.group_total_cents) + '</strong> for ' + (n === 1 ? 'this demo' : 'these ' + n + ' demos') + ' was started and not finished. It is paid on its own. ' + link(r.id, 'Resume payment') + '</div>';
@@ -2555,7 +2560,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             return { rows: (Array.isArray(d.unpaid_bookings) ? d.unpaid_bookings : []).filter(r => r && r.retailer && r.retailer.slug === slug), unavailable: false };
         }
         // ticked AND still offered: not yet in a payment group, payable, and on the server's list right now
-        function _earlierOffered() { return _earlierUnpaid().rows.filter(r => !r.in_checkout && r.can_pay && (window._earlierTicked || {})[r.id]); }
+        function _earlierOffered() { return _earlierUnpaid().rows.filter(r => !r.in_checkout && r.can_pay && ['awaiting_payment', 'awaiting_coi'].includes(r.state) && (window._earlierTicked || {})[r.id]); }
         function _earlierTickedIds() { return _earlierOffered().map(r => r.id); }
         function _earlierTickedCents() { return _earlierOffered().reduce((s, r) => s + Number(r.total_cents || 0), 0); }
         function toggleEarlier(id, on) { window._earlierTicked = window._earlierTicked || {}; window._earlierTicked[id] = !!on; updateCartDisplay(); }
@@ -2565,7 +2570,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 const r = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ resume_booking_id: id }) });
                 const j = await r.json().catch(() => ({}));
                 if (r.ok && j.url) { window.location.assign(j.url); return false; }
-                const words = { payment_pending: 'This payment is being confirmed. Reload in a moment.', unpaid_expired: 'The 24 hours to pay have ended and the time slot was released. Please book the demo again.', not_payable_state: 'This demo can no longer be paid for. Reload the page.' };
+                const words = { payment_pending: 'This payment is being confirmed. Reload in a moment.', unpaid_expired: 'The 24 hours to pay have ended, so this demo can no longer be paid for. Please book it again.', not_payable_state: 'This demo can no longer be paid for. Reload the page.' };
                 const final = j.message || words[j.error] || checkoutRefusalText(j);
                 a.textContent = final || 'Payment could not be opened. Click to try again.';
                 if (final) { a.removeAttribute('href'); a.onclick = null; a.removeAttribute('onclick'); a.style.textDecoration = 'none'; a.style.cursor = 'default'; }

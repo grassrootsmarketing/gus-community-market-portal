@@ -99,8 +99,8 @@ export function applyAuthorizationCanceled(paymentIntentId, targetStatus, reason
 // the slot-contention bump ('expired' + bumped copy) and retailer decline/cancel
 // ('declined'/'cancelled'; those send their own emails, pass notify:false).
 // A held booking has either payment_status='authorized' (auth placed → cancel the PI, converge via
-// RPC) or 'unpaid' (never finished checkout → just flip the row; any open Checkout Session dies on
-// its own 24h expiry and its attempt is terminalized by checkout.session.expired).
+// RPC) or 'unpaid' (never authorized → released only through release_unpaid_held_booking, under the
+// ledger's locks, and only when no attempt is live and no creation lease may still be in use).
 // ---------------------------------------------------------------------------
 export async function releaseHeldBooking(booking, { target = 'expired', reason = 'hold_expired', notify = true, bumped = false } = {}) {
   if (!booking || booking.status !== 'held') return { ok: false, error: 'not_held' };
@@ -139,9 +139,14 @@ export async function releaseHeldBooking(booking, { target = 'expired', reason =
       return { ok: false, error: 'apply_canceled_' + ((applied && applied.outcome) || 'failed') };
     }
   } else {
-    await sb(`bookings?id=eq.${encodeURIComponent(booking.id)}&status=eq.held`, {
-      method: 'PATCH', body: JSON.stringify({ status: target }),
-    });
+    // Codex return review R1: an unpaid held booking is released only by release_unpaid_held_booking (0126), under the
+    // group and booking locks. It refuses while an attempt is open or reserved, while a creation lease may still be in
+    // use, or when the booking is no longer unpaid and held. A refusal leaves the booking exactly as it was; the
+    // unpaid sweep releases it at its deadline after settling the attempt with the provider.
+    let rel = null;
+    try { const j = await sbRpc('release_unpaid_held_booking', { p_booking_id: booking.id, p_target: target }); rel = Array.isArray(j) ? j[0] : j; }
+    catch (e) { return { ok: false, error: 'unpaid_release_failed: ' + String((e && e.message) || e).slice(0, 120), retryable: true }; }
+    if (!rel || rel.outcome !== 'released') return { ok: false, error: 'unpaid_' + ((rel && rel.outcome) || 'unknown'), retryable: true };
   }
   if (notify && booking.contact_email) {
     try { await sendHoldReleasedEmail(booking, { bumped }); }

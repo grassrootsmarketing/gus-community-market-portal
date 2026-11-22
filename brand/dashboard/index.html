@@ -919,15 +919,18 @@ function awaitingPaymentHtml() {
     const r = b.lead, total = b.members.reduce((s, m) => s + Number(m.total_cents || 0), 0);
     const when = _payBy(r.pay_by);
     let next;
-    if (r.state === 'awaiting_coi' && !r.can_pay) next = `<div style="margin-top:8px;"><strong>Waiting for your certificate of insurance.</strong> This store needs it approved before you can pay. <a href="#compliance" style="font-weight:700;">Upload or check it &rarr;</a></div>`;
+    if (r.state === 'payment_processing') next = `<div style="margin-top:8px;"><strong>Payment received, being confirmed.</strong> There is nothing more to do. Reload this page in a minute and the demo will show as booked.</div>`;
+    else if (r.state === 'window_ended') next = `<div style="margin-top:8px;"><strong>The 24 hours to pay have ended.</strong> This can no longer be paid for and the time slot is being released. If you still want the demo, book it again from the store's page.</div>`;
+    else if (r.state === 'expired') next = `<div style="margin-top:8px;"><strong>Not paid in time.</strong> The time slot was released. If you still want the demo, book it again from the store's page.</div>`;
+    else if (r.state === 'awaiting_coi' && !r.can_pay) next = `<div style="margin-top:8px;"><strong>Waiting for your certificate of insurance.</strong> This store needs it approved before you can pay. <a href="#compliance" style="font-weight:700;">Upload or check it &rarr;</a></div>`;
     else next = `<div style="margin-top:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;"><button type="button" class="btn btn-primary" data-resume="${escapeHtml(r.id)}" onclick="resumePayment(this)">${r.in_checkout ? 'Resume payment' : 'Pay now'}: ${_money(r.in_checkout ? r.group_total_cents : total)}</button><span data-resume-msg style="font-size:0.86rem;color:#8a1f11;"></span></div>`
       + (r.state === 'awaiting_coi' ? `<div style="margin-top:6px;font-size:0.84rem;">Your certificate of insurance is not approved yet, so your card is held, not charged, until it is.</div>` : '');
     return `<div style="margin-top:12px;">${b.members.map(line).join('')}
-      <div style="border-top:1px solid var(--line,#e7e2d6);padding-top:8px;font-size:0.9rem;">${when ? 'Pay by <strong>' + escapeHtml(when) + '</strong>. After that the time slot is released and you would need to book again.' : ''}${b.members.length > 1 ? ' These demos were sent to checkout together, so they are paid together.' : ''}</div>
+      <div style="border-top:1px solid var(--line,#e7e2d6);padding-top:8px;font-size:0.9rem;">${when && ['awaiting_payment', 'awaiting_coi'].includes(r.state) ? 'Pay by <strong>' + escapeHtml(when) + '</strong>. After that the time slot is released and you would need to book again.' : ''}${b.members.length > 1 ? ' These demos were sent to checkout together, so they are paid together.' : ''}</div>
       ${next}</div>`;
   };
   return `<div class="card" id="awaitingPaymentCard" style="border-left:4px solid #c2410c;"><strong style="font-size:1.05rem;">Awaiting payment</strong>
-    <div class="sub" style="margin-top:2px;">${rows.length === 1 ? 'This demo is' : 'These demos are'} saved but not paid for yet. A demo is only booked once it is paid.</div>
+    <div class="sub" style="margin-top:2px;">A demo is only booked once it is paid. Here is where each unpaid one stands.</div>
     ${blocks.map(block).join('')}</div>`;
 }
 async function resumePayment(btn) {
@@ -938,7 +941,7 @@ async function resumePayment(btn) {
     const r = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ resume_booking_id: id }) });
     const j = await r.json().catch(() => ({}));
     if (r.ok && j.url) { window.location.assign(j.url); return; }
-    const words = { payment_pending: 'This payment is being confirmed. Reload this page in a moment.', unpaid_expired: 'The 24 hours to pay have ended and the time slot was released. Please book the demo again.', not_payable_state: 'This demo can no longer be paid for. Reload the page to see where it stands.', attempt_needs_review: 'This payment could not be reopened automatically. Please contact support and we will sort it out.' };
+    const words = { payment_pending: 'This payment is being confirmed. Reload this page in a moment.', unpaid_expired: 'The 24 hours to pay have ended, so this demo can no longer be paid for. Please book it again.', not_payable_state: 'This demo can no longer be paid for. Reload the page to see where it stands.', attempt_needs_review: 'This payment could not be reopened automatically. Please contact support and we will sort it out.' };
     if (msg) msg.textContent = j.message || words[j.error] || 'Payment could not be opened just now. Please try again.';
   } catch (_) { if (msg) msg.textContent = 'The payment page could not be reached. Please check your connection and try again.'; }
   btn.disabled = false; btn.textContent = label;

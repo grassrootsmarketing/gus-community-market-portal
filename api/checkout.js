@@ -14,6 +14,13 @@ let _b = null;
 // SITE comes from the validated binding inside the handler (_b.siteOrigin). A hardcoded
 // fallback here is what let a preview deployment send customers to production on checkout return.
 const PLATFORM_FEE_CENTS = 1000;
+// Creation lease (0126, Codex return review R2). A reservation handed out by reserve_payment_attempt carries a lease of
+// unpaid_expiry_lease_seconds() = 90 s in the database. This handler sends a provider request for it only within
+// SEND_WINDOW_MS of the moment it ASKED for the reservation (its own clock, taken before the call, so it can only be
+// earlier than the database's grant) and gives the request PROVIDER_TIMEOUT_MS. Nothing can therefore be sent later
+// than 50 s after the grant, well inside the lease; expiry waits for the lease plus a settle time before it searches
+// the provider. The two numbers must stay inside the database's lease.
+export const SEND_WINDOW_MS = 30000, PROVIDER_TIMEOUT_MS = 20000, LEASE_SECONDS_IN_DATABASE = 90;
 
 function rest(path, opts = {}) {
   return fetch(`${_b.supabaseUrl}/rest/v1/${path}`, {
@@ -185,7 +192,7 @@ export default async function handler(req, res) {
       const msg = String((claim.json && claim.json.message) || claim.text || '');
       if (/not_your_booking/.test(msg)) return res.status(403).json({ error: 'not_your_booking' });
       if (/mixed_retailers/.test(msg)) return res.status(400).json({ error: 'mixed_retailers' });
-      if (/unpaid_expired/.test(msg)) return res.status(409).json({ error: 'unpaid_expired', message: 'The 24 hours to pay for this demo have ended, so its time slot was released. Please book the demo again.' });
+      if (/unpaid_expired/.test(msg)) return res.status(409).json({ error: 'unpaid_expired', message: 'The 24 hours to pay for this demo have ended, so it can no longer be paid for. Please book the demo again.' });
       if (/not_payable_state/.test(msg)) return res.status(409).json({ error: 'not_payable_state' });
       if (/capture_mode_stale/.test(msg)) return res.status(409).json({ error: 'booking_state_changed', message: 'This booking changed while you were paying. Please refresh the page and try again.' });
       if (/connected_hold_unsupported/.test(msg)) return res.status(409).json({ error: 'store_requires_insurance_on_file', message: 'This store can only take bookings from brands with insurance on file. Upload your certificate of insurance, or contact the store.' });
@@ -330,7 +337,9 @@ export default async function handler(req, res) {
       return { kind: 'contradiction', reason: `state:${st}/${ps}` };
     };
     const jsonOutcome = (r) => { const v = Array.isArray(r.json) ? r.json[0] : r.json; return (v && v.outcome) || null; };
+    let leaseAskedAt = 0;
     const reserve = async () => {
+      leaseAskedAt = Date.now();   // before the call: never later than the database's own grant
       const rv = await rpc('reserve_payment_attempt', { p_group_id: gid, p_hash: reqHash, p_schema: 1, p_request: bodyStr });
       if (!rv.ok) { const msg = String((rv.json && rv.json.message) || rv.text || ''); return { ok: false, inProgress: /attempt_in_progress/.test(msg), unpaidExpired: /unpaid_expired/.test(msg), msg }; }
       const v = Array.isArray(rv.json) ? rv.json[0] : rv.json;
@@ -339,7 +348,7 @@ export default async function handler(req, res) {
     const reserveFailure = (rsv) => {
       if (rsv.inProgress) return res.status(409).json({ error: 'attempt_in_progress' });
       // 0123: the group's 24-hour deadline passed, or its expiry has begun: no session is created or handed back
-      if (rsv.unpaidExpired) return res.status(409).json({ error: 'unpaid_expired', message: 'The 24 hours to pay for this demo have ended, so its time slot was released. Please book the demo again.' });
+      if (rsv.unpaidExpired) return res.status(409).json({ error: 'unpaid_expired', message: 'The 24 hours to pay for this demo have ended, so it can no longer be paid for. Please book the demo again.' });
       console.error('reserve_payment_attempt failed:', rsv.msg);
       return res.status(503).json({ error: 'attempt_reserve_failed', message: 'Could not start the payment just now. Please try again.' });
     };
@@ -389,11 +398,24 @@ export default async function handler(req, res) {
       const candidates = stored ? [stored] : (rsv.row.existing ? [buildBody(false), bodyStr] : [bodyStr]);
       let stripeResp = null, created = null, mismatch = false;
       for (const body of candidates) {
+        // R2: outside the send window the right to create a session for this reservation has lapsed. Nothing is sent;
+        // the reservation is kept and the caller retries, which asks for a new lease (or is refused once expiry began).
+        if (Date.now() - leaseAskedAt > SEND_WINDOW_MS) {
+          console.warn('checkout: creation lease lapsed before the provider request for attempt', attemptId, 'group', gid);
+          return res.status(503).json({ error: 'checkout_slow', message: 'That took too long to start. Please try again.' });
+        }
+        try {
         stripeResp = await fetch('https://api.stripe.com/v1/checkout/sessions', {
-          method: 'POST',
+          method: 'POST', signal: globalThis.AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
           headers: { Authorization: `Bearer ${STRIPE}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': `co-${gid}-${attemptId}` },
           body,
         });
+        } catch (e) {
+          // timed out or failed in transit: whether Stripe created a session is UNKNOWN. The reservation is kept; a retry
+          // replays the same key and request, and the unpaid sweep searches the provider before it concludes anything.
+          console.error('Stripe session request did not complete for attempt', attemptId, (e && e.name) || e);
+          return res.status(502).json({ error: 'stripe_failed' });
+        }
         created = null; try { created = await stripeResp.json(); } catch (_) { created = null; }
         mismatch = !stripeResp.ok && !!(created && created.error && created.error.type === 'idempotency_error');
         if (!mismatch) break;
