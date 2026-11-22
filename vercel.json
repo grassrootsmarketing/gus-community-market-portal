@@ -62,6 +62,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/unpaid-sweep",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/notification-worker",
       "schedule": "*/15 * * * *"
     }

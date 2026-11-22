@@ -20,12 +20,15 @@ let _b = null;
 // daily job writes one before its final row) are ignored when picking the latest completed outcome.
 //   refund-worker      every 15 min  required always (payments are on for this app)  stale > 35 min
 //   provisional-sweep  every 15 min  required only while FLAGS.provisionalHolds     stale > 35 min
+//   unpaid-sweep       every 15 min  required always (unpaid reservations hold capacity) stale > 35 min
 //   notification-worker every 15 min required only while FLAGS.notificationWorker  stale > 35 min
 //                      (store-contact demo notices + reminders, COI decision emails; 0074 outbox)
 //   daily              once a day    required always (brand-account.js action=cron)  stale > 25 h
 const CRON_JOBS = [
   { name: 'refund-worker', maxAgeMin: 35, required: () => true },
   { name: 'provisional-sweep', maxAgeMin: 35, required: () => !!FLAGS.provisionalHolds },
+  // 0123: releases unpaid reservations after their 24-hour deadline; without it an abandoned checkout holds a slot
+  { name: 'unpaid-sweep', maxAgeMin: 35, required: () => true },
   { name: 'notification-worker', maxAgeMin: 35, required: () => !!FLAGS.notificationWorker, backlog: true },
   { name: 'daily', maxAgeMin: 25 * 60, required: () => true },
 ];

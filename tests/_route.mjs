@@ -142,6 +142,14 @@ export function installSpy() {
       // API v1 saves and replays the first response for a key; a create carries status open and payment_status unpaid;
       // a GET of a known session returns its CURRENT object (a test changes it through spy.sessions, keyed by id); an
       // unknown session is 404 as on Stripe.
+      // POST /v1/checkout/sessions/{id}/expire (0123, the unpaid sweep): only an OPEN session can be expired, as on Stripe;
+      // the session's current object changes, the saved first response for its Idempotency-Key does not.
+      if (csMatch && method === 'POST' && /\/expire$/.test(pathOnly)) {
+        const s = sessions.get(decodeURIComponent(csMatch[1]));
+        if (s && s.status === 'open') { s.status = 'expired'; return jsonRes(JSON.parse(JSON.stringify(s))); }
+        const bad = { error: { type: 'invalid_request_error', message: s ? 'Only Checkout Sessions with a status in ["open"] can be expired.' : 'No such checkout.session' } };
+        return { ok: false, status: s ? 400 : 404, json: async () => bad, text: async () => JSON.stringify(bad) };
+      }
       if (csMatch) {
         const known = sessions.get(decodeURIComponent(csMatch[1]));
         if (known) return jsonRes(known);

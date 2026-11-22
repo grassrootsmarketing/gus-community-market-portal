@@ -2507,7 +2507,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         // one; its own wording here for the one refusal that carries none (online payment switched off for this store).
         function checkoutRefusalText(j) {
             const code = j && j.error;
-            if (['store_requires_insurance_on_file', 'store_not_payout_ready', 'connected_checkout_unavailable_pilot', 'provisional_holds_disabled', 'booking_state_changed', 'held_recheck_failed'].includes(code) && j.message) return j.message;
+            if (['unpaid_expired', 'store_requires_insurance_on_file', 'store_not_payout_ready', 'connected_checkout_unavailable_pilot', 'provisional_holds_disabled', 'booking_state_changed', 'held_recheck_failed'].includes(code) && j.message) return j.message;
             if (code === 'connected_checkout_unavailable_pilot') return 'Online payment is not available at this store right now. Please contact the store.';
             return '';
         }

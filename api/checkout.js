@@ -171,6 +171,7 @@ export default async function handler(req, res) {
       const msg = String((claim.json && claim.json.message) || claim.text || '');
       if (/not_your_booking/.test(msg)) return res.status(403).json({ error: 'not_your_booking' });
       if (/mixed_retailers/.test(msg)) return res.status(400).json({ error: 'mixed_retailers' });
+      if (/unpaid_expired/.test(msg)) return res.status(409).json({ error: 'unpaid_expired', message: 'The 24 hours to pay for this demo have ended, so its time slot was released. Please book the demo again.' });
       if (/not_payable_state/.test(msg)) return res.status(409).json({ error: 'not_payable_state' });
       if (/capture_mode_stale/.test(msg)) return res.status(409).json({ error: 'booking_state_changed', message: 'This booking changed while you were paying. Please refresh the page and try again.' });
       if (/connected_hold_unsupported/.test(msg)) return res.status(409).json({ error: 'store_requires_insurance_on_file', message: 'This store can only take bookings from brands with insurance on file. Upload your certificate of insurance, or contact the store.' });
@@ -311,12 +312,14 @@ export default async function handler(req, res) {
     const jsonOutcome = (r) => { const v = Array.isArray(r.json) ? r.json[0] : r.json; return (v && v.outcome) || null; };
     const reserve = async () => {
       const rv = await rpc('reserve_payment_attempt', { p_group_id: gid, p_hash: reqHash, p_schema: 1 });
-      if (!rv.ok) { const msg = String((rv.json && rv.json.message) || rv.text || ''); return { ok: false, inProgress: /attempt_in_progress/.test(msg), msg }; }
+      if (!rv.ok) { const msg = String((rv.json && rv.json.message) || rv.text || ''); return { ok: false, inProgress: /attempt_in_progress/.test(msg), unpaidExpired: /unpaid_expired/.test(msg), msg }; }
       const v = Array.isArray(rv.json) ? rv.json[0] : rv.json;
       return v && v.attempt_id ? { ok: true, row: v } : { ok: false, inProgress: false, msg: 'no reservation row' };
     };
     const reserveFailure = (rsv) => {
       if (rsv.inProgress) return res.status(409).json({ error: 'attempt_in_progress' });
+      // 0123: the group's 24-hour deadline passed, or its expiry has begun: no session is created or handed back
+      if (rsv.unpaidExpired) return res.status(409).json({ error: 'unpaid_expired', message: 'The 24 hours to pay for this demo have ended, so its time slot was released. Please book the demo again.' });
       console.error('reserve_payment_attempt failed:', rsv.msg);
       return res.status(503).json({ error: 'attempt_reserve_failed', message: 'Could not start the payment just now. Please try again.' });
     };

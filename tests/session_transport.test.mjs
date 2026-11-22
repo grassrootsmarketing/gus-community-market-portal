@@ -490,6 +490,7 @@ const EXEMPT = new Map([
   ['coi-enforcement.js', 'authenticated by CRON_SECRET'],
   ['refund-worker.js', 'authenticated by CRON_SECRET'],
   ['provisional-sweep.js', 'authenticated by CRON_SECRET'],
+  ['unpaid-sweep.js', 'authenticated by CRON_SECRET'],
   ['notification-worker.js', 'authenticated by CRON_SECRET'],
   ['seed-demo.js', 'authenticated by SEED_SECRET'],
   ['cal.js', 'public ICS feed authenticated by an opaque per-brand calendar token'],
