@@ -16,7 +16,9 @@
 import { readFileSync } from 'node:fs';
 let pass = 0, fail = 0;
 const ok = (n, c, d) => { if (c) { pass++; console.log('  ok   ' + n); } else { fail++; console.log('  FAIL ' + n + (d ? ' ' + d : '')); } };
-const src = readFileSync('r/gus/admin/index.html', 'utf8');
+const src = readFileSync('r/gus/admin/index.html', 'utf8').replace(/
+/g, '
+');   // a Windows checkout has CRLF; the patterns below are written for LF
 const lift = (re, what) => { const m = src.match(re); if (!m) throw new Error(what + ' not found in the admin page'); return m[0]; };
 const renderSrc = lift(/async function renderPayouts\(\) \{[\s\S]*?\n {8}\}\n/, 'renderPayouts');
 const onboardSrc = lift(/async function startConnectOnboarding\(btn\) \{[\s\S]*?\n {8}\}\n/, 'startConnectOnboarding');
