@@ -354,6 +354,9 @@ try {
     ok('9b. once the provider answers again the same group completes its expiry', (await stateOf(b)).status === 'expired' && (await groupOf(gid)).status === 'failed' && spy.sessions.get(sid).status === 'expired');
     const hb = (await db(`cron_heartbeat?cron_name=eq.unpaid-sweep&select=outcome,summary&order=ran_at.desc&limit=1`)).body || [];
     ok('9c. each run leaves a heartbeat row with its counts', hb.length === 1 && hb[0].outcome === 'succeeded' && hb[0].summary && typeof hb[0].summary.scanned === 'number', JSON.stringify(hb).slice(0, 200));
+    const stat = await callRoute('find-retailer.js', req({ body: { action: 'status' } }));
+    const jobs = stat.body && stat.body.checks && stat.body.checks.cron && stat.body.checks.cron.jobs;
+    ok('9d. the status route lists unpaid-sweep as a required job and reads its fresh heartbeat as healthy', !!jobs && !!jobs['unpaid-sweep'] && jobs['unpaid-sweep'].required === true && jobs['unpaid-sweep'].ok === true, JSON.stringify(jobs || stat.body).slice(0, 300));
   }
 } finally {
   clearTimeout(watchdog);
