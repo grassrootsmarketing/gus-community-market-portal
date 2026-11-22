@@ -73,7 +73,7 @@ export const NON_COLUMN = new Set([
   // very common built-in function names (also skipped by the followed-by-'(' rule, but belt-and-braces)
   'lower','upper','trim','btrim','ltrim','rtrim','length','coalesce','count','sum','avg','max','min','now','abs',
   'round','ceil','floor','greatest','least','concat','substring','position','replace','split_part','to_char','to_date',
-  'to_timestamp','date_trunc','extract','age','gen_random_uuid','uuid_generate_v4','random','md5','encode','decode',
+  'to_timestamp','date_trunc','extract','epoch','age','gen_random_uuid','uuid_generate_v4','random','md5','encode','decode',
   'jsonb_build_object','json_build_object','jsonb_set','to_jsonb','array_agg','string_agg','unnest','format','cast',
   'make_interval','current_timestamp','current_date','current_time','localtimestamp','clock_timestamp','statement_timestamp',
 ]);
