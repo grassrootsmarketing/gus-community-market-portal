@@ -16,7 +16,7 @@
 //
 // Run:  SB_URL / SB_KEY / SB_REF from demohub.env, PLAYWRIGHT_ROOT = a folder whose node_modules has playwright.
 //       SHOTS_DIR (optional) = where the pictures go.
-/* global document, window, getComputedStyle */
+/* global document, window, localStorage, closeTour, outcomesKey, loadOutcomes, saveOutcomes, pendingPaidIds, _earlierUnpaid, _earlierTickedIds */
 import http from 'node:http';
 import { readFileSync, existsSync, statSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
