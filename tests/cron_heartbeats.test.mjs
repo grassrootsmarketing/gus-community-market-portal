@@ -217,8 +217,12 @@ if (HOLDS_ON) {
     // the next tick, and the REQUIRED sweep goes unhealthy until a clean run recovers it.
     console.log('\n— 5c (child): per-booking sweep failure -> failed heartbeat, non-2xx, unhealthy until recovered —');
     const tSweep = new Date().toISOString();
-    const held = await seedBooking({ status: 'held', payment_status: 'unpaid', held_expires_at: minutesAgo(30) });
-    spy.faults.push({ url: `bookings?id=eq.${held.id}&status=eq.held`, method: 'PATCH', status: 500, message: 'injected_expiry_patch_fault' });
+    // 2026-11-22 (Codex return review R1): this sweep no longer expires UNPAID holds (the unpaid sweep owns them), so its
+    // only per-booking write is the release of an AUTHORIZED hold. The fault is the provider refusing that release.
+    const PI = 'pi_hb_' + MARK.replace(/[^a-z0-9]/gi, '');
+    const held = await seedBooking({ status: 'held', payment_status: 'authorized', payment_intent_id: PI, held_expires_at: minutesAgo(30) });
+    const unpaidHeld = await seedBooking({ status: 'held', payment_status: 'unpaid', held_expires_at: minutesAgo(30) });
+    spy.faults.push({ url: `payment_intents/${PI}/cancel`, method: 'POST', status: 500, message: 'injected_expiry_patch_fault' });
     const sf = await callRoute('provisional-sweep.js', req({ body: {}, headers: CRON }));
     spy.faults.length = 0;
     ok('holds ON: sweep whose per-booking expiry PATCH fails -> 500 partial_failure', sf.statusCode === 500 && sf.body && sf.body.ok === false && sf.body.errors >= 1 && sf.body.scanned >= 1, `${sf.statusCode} ${JSON.stringify(sf.body)}`);
@@ -232,12 +236,14 @@ if (HOLDS_ON) {
     ok('holds ON: failed required job -> overall cron ok:false', s.cron.ok === false, JSON.stringify(s.cron));
     ok('holds ON: public payload stays coarse after a failure', publicShapeOk(s.res) && onlyOkRequired(s.jobs), JSON.stringify(s.res.body));
 
+    // the errored hold leaves the sweep's window (as a retried release would), so the next run is clean
+    await db(`bookings?id=eq.${held.id}`, { method: 'PATCH', body: JSON.stringify({ held_expires_at: new Date(Date.now() + 3600e3).toISOString() }) });
     const sr = await callRoute('provisional-sweep.js', req({ body: {}, headers: CRON }));
-    ok('holds ON: clean sweep run -> 200 ok, no errors, the hold expired', sr.statusCode === 200 && sr.body && sr.body.ok === true && sr.body.errors === 0 && sr.body.expired_unpaid >= 1, `${sr.statusCode} ${JSON.stringify(sr.body)}`);
+    ok('holds ON: clean sweep run -> 200 ok, no errors, the unpaid hold is left to the unpaid sweep', sr.statusCode === 200 && sr.body && sr.body.ok === true && sr.body.errors === 0 && sr.body.left_to_unpaid_sweep >= 1 && !('expired_unpaid' in sr.body), `${sr.statusCode} ${JSON.stringify(sr.body)}`);
     srows = await hbRows(`cron_name=eq.provisional-sweep&ran_at=gte.${encodeURIComponent(tSweep)}`);
     ok("holds ON: sweep rows since the failure are [failed, succeeded]", srows.map(r => r.outcome).join(',') === 'failed,succeeded', srows.map(r => r.outcome).join(','));
-    const nowExpired = ((await db(`bookings?id=eq.${held.id}&select=status`)).body || [])[0];
-    ok('holds ON: booking is expired after the clean run', nowExpired && nowExpired.status === 'expired', JSON.stringify(nowExpired));
+    const nowExpired = ((await db(`bookings?id=eq.${unpaidHeld.id}&select=status`)).body || [])[0];
+    ok('holds ON: the unpaid hold is still held after the clean run (this sweep never expires it)', nowExpired && nowExpired.status === 'held', JSON.stringify(nowExpired));
     s = await status();
     ok('holds ON: recovery -> sweep ok:true again', s.jobs['provisional-sweep'] && s.jobs['provisional-sweep'].ok === true, JSON.stringify(s.jobs));
     ok('holds ON: recovery -> overall cron ok:true', s.cron.ok === true, JSON.stringify(s.cron));

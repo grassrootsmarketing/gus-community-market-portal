@@ -354,14 +354,17 @@ try {
   const harborGone = await get(harborToken, { from: dayP(0), to: dayP(27) }), storeNoHarbor = await get(storeToken2, { from: dayP(0), to: dayP(27) });
   ok('retiring the location: its link is dead (401) and the store link no longer lists it or its demo', harborGone.statusCode === 401 && storeNoHarbor.statusCode === 200 && storeNoHarbor.body.scope.venues.length === 1 && storeNoHarbor.body.events.every(e => e.venue_id !== VA2), [harborGone.statusCode, storeNoHarbor.statusCode, storeNoHarbor.body && storeNoHarbor.body.scope && storeNoHarbor.body.scope.venues.length].join(','));
   await db(`venues?id=eq.${VA2}`, { method: 'PATCH', body: JSON.stringify({ active: true }) });
+  // 2026-11-22: the store zone is UTC-7 in summer and UTC-8 in winter. These two checks had 17:00 UTC written in, which
+  // is only right in summer, so they failed on every run after the clock change. The expected hour is now worked out.
+  const laUtc = (iso, hour) => { const off = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', timeZoneName: 'shortOffset' }).formatToParts(new Date(iso)).find(p => p.type === 'timeZoneName').value; return 'T' + String(hour - Number(off.replace('GMT', ''))).padStart(2, '0') + ':00:00'; };
   // The snapshot trigger (0076) fills start_at/end_at on insert, so a 'legacy' row cannot be made through the API; the
   // fallback path of the projection is exercised directly, and a plainly inserted demo is shown from its trigger-filled snapshot.
   const DLEG = await mkDemo(VA1, dayP(6), 10, 'confirmed', { noSnapshot: true });
   const leg = await get(storeToken2, { from: dayP(0), to: dayP(27) });
   const le = (leg.body.events || []).find(e => e.id === DLEG.demo.id);
-  ok('a demo inserted without explicit snapshot fields is shown from the trigger-filled snapshot (10:00 AM store time, not flagged)', !!le && le.all_day_fallback === false && /T17:00:00/.test(le.start_at), JSON.stringify(le));
+  ok('a demo inserted without explicit snapshot fields is shown from the trigger-filled snapshot (10:00 AM store time, not flagged)', !!le && le.all_day_fallback === false && le.start_at.includes(laUtc(le.start_at, 10)), JSON.stringify(le));
   const fb = projectEvent({ id: 'x', booking_id: null, venue_id: VA1, company_name: 'Legacy', product: 'Old Product', product_skus: null, demo_date: dayP(6), demo_time: '10:00 AM', duration_hours: 2 }, null, { name: 'Main Street' }, LA);
-  ok('projection fallback: a demo with no booking snapshot is placed from its date and time in the store zone, 2h long, flagged all_day_fallback, with the product text as its one item', !!fb && fb.all_day_fallback === true && /T17:00:00/.test(fb.start_at) && /T19:00:00/.test(fb.end_at) && JSON.stringify(fb.items) === JSON.stringify(['Old Product']), JSON.stringify(fb));
+  ok('projection fallback: a demo with no booking snapshot is placed from its date and time in the store zone, 2h long, flagged all_day_fallback, with the product text as its one item', !!fb && fb.all_day_fallback === true && fb.start_at.includes(laUtc(fb.start_at, 10)) && fb.end_at.includes(laUtc(fb.start_at, 12)) && JSON.stringify(fb.items) === JSON.stringify(['Old Product']), JSON.stringify(fb));
   ok('no provider call was made by anything in this suite', spy.calls.resend.length === 0 && spy.calls.stripe.length === 0);
 } finally {
   console.log('\n,  teardown , ');
