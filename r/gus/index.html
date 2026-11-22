@@ -1867,7 +1867,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 if (pwGroup) pwGroup.style.display = 'none';
                 if (title) title.textContent = 'Confirm your booking';
                 // Booking as (2026-10-17): the brand this request is made in the name of, said before anything is paid.
-                if (subtitle) subtitle.textContent = _brandNameMissing(bp) ? 'Enter your brand name below. Every demo in this request is made in that brand\'s name, under its insurance and agreements. We\'ll confirm by email.' : 'Booking as ' + bp.company_name + '. Every demo in this request is made in that brand\'s name, under its insurance and agreements. We\'ll confirm by email.';
+                if (subtitle) subtitle.textContent = (_brandNameMissing(bp) && window._brandRole === 'booker') ? 'This brand has no name on file yet. Ask the brand account owner (' + (bp.owner_email || 'the owner') + ') to add it under Profile in the brand portal, so stores see the brand name on your demos.' : _brandNameMissing(bp) ? 'Enter your brand name below. Every demo in this request is made in that brand\'s name, under its insurance and agreements. We\'ll confirm by email.' : 'Booking as ' + bp.company_name + '. Every demo in this request is made in that brand\'s name, under its insurance and agreements. We\'ll confirm by email.';
                 if (signInPrompt) signInPrompt.style.display = 'none';
                 if (submitBtn) submitBtn.textContent = 'Confirm booking';
             } else {
@@ -2031,12 +2031,20 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
                             credentials: 'same-origin', body: JSON.stringify(patch),
                         });
+                        if (!_pr.ok && patch.company_name) {
+                            // the typed name is what the store and the payment page will show: never go on as if it was saved
+                            errMsg.textContent = 'We could not save your brand name just now. Please try again in a moment.'; errMsg.style.display = 'block';
+                            return;
+                        }
                         if (_pr.ok) {
                             Object.assign(bp, patch);
                             // the name just saved is the name every line on this page shows from here on
                             if (patch.company_name && window._brandData && window._brandData.active_brand) { window._brandData.active_brand.company_name = patch.company_name; try { renderBookingFor(); } catch (_) {} }
                         }
-                    } catch (_) { /* non-fatal, the guard below still protects the booking */ }
+                    } catch (_) {
+                        if (patch.company_name) { errMsg.textContent = 'We could not save your brand name just now. Please check your connection and try again.'; errMsg.style.display = 'block'; return; }
+                        /* otherwise non-fatal, the guard below still protects the booking */
+                    }
                 }
                 if (_brandContactGateBlocks(bp)) {
                     errMsg.innerHTML = 'Add your <strong>name and phone number</strong> to your brand profile before booking. <a href="/brand/dashboard#profile" style="color:var(--forest-700); font-weight:700; text-decoration:underline;">Complete profile →</a>';
